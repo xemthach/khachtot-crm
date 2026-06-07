@@ -1,5 +1,96 @@
 # Khach Tot CRM Deployment Guide
 
+## Simple Live Clone Deploy
+
+Production path:
+
+```text
+/home/khachtotcom/khachtot.com/public_html
+```
+
+GitHub repo:
+
+```text
+https://github.com/xemthach/khachtot-crm
+```
+
+Recommended clean first deploy:
+
+```bash
+cd /home/khachtotcom/khachtot.com
+pwd
+ls -la
+ls -la public_html
+```
+
+If `public_html` already contains files, back it up before replacing it:
+
+```bash
+cd /home/khachtotcom/khachtot.com
+tar -czf public_html_backup_$(date +%Y%m%d_%H%M%S).tar.gz public_html
+ls -lh public_html_backup_*.tar.gz
+```
+
+Replace with a fresh clone:
+
+```bash
+cd /home/khachtotcom/khachtot.com
+mv public_html public_html_old_$(date +%Y%m%d_%H%M%S)
+git clone https://github.com/xemthach/khachtot-crm public_html
+cd public_html
+git checkout v0.9.0-simple-deploy
+bash scripts/setup-live.sh
+```
+
+If `v0.9.0-simple-deploy` is not available yet, use the latest clone-ready tag:
+
+```bash
+git checkout v0.9.1-clone-ready
+```
+
+Do not run Composer from the web root for this baseline. There is no root `composer.json`.
+
+After setup:
+
+```bash
+nano application/config/app-config.php
+nano application/config/database.php
+nano application/config/config.php
+```
+
+Set:
+
+```text
+base_url = https://khachtot.com/
+DB host/name/user/password = live database credentials
+char_set = utf8mb4
+dbcollat = utf8mb4_unicode_ci
+```
+
+Import landlord DB:
+
+```bash
+mysql -u <LIVE_DB_USER> -p --default-character-set=utf8mb4 <LIVE_DB_NAME> < /home/khachtotcom/khachtot.com/khachtot_live_seed.sql
+mysql -u <LIVE_DB_USER> -p <LIVE_DB_NAME> -e "SHOW TABLES LIKE 'tbloptions';"
+```
+
+If the imported DB came from local, check local URLs before opening traffic:
+
+```sql
+SELECT name, value
+FROM tbloptions
+WHERE value LIKE '%khachtot.test%'
+   OR value LIKE '%localhost%'
+   OR value LIKE '%127.0.0.1%';
+```
+
+Run a quick smoke check:
+
+```bash
+bash scripts/check-permissions.sh /home/khachtotcom/khachtot.com/public_html
+bash scripts/live-smoke-check.sh https://khachtot.com
+```
+
 ## 1. Server Requirements
 
 - Ubuntu 22.04/24.04 or compatible Linux
@@ -32,7 +123,8 @@ Cloudflare:
 cd /var/www
 git clone https://github.com/<github_user>/khachtot-crm.git khachtot
 cd /var/www/khachtot
-git checkout v0.9.1-clone-ready
+git checkout v0.9.0-simple-deploy
+bash scripts/setup-live.sh
 ```
 
 ## 4. Configure Application
