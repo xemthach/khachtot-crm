@@ -50,6 +50,36 @@ git checkout v0.9.1-clone-ready
 
 Do not run Composer from the web root for this baseline. There is no root `composer.json`.
 
+## Landlord Data Source
+
+GitHub chỉ chứa source code. Landlord database không được commit vào Git vì có cấu hình hệ thống, user, subscription, invoice, payment metadata và có thể chứa secret/runtime data.
+
+Local landlord DB backup hiện đang nằm ngoài repo:
+
+```text
+D:\laragon\www\khachtot_landlord_backup_20260607_234753.sql
+```
+
+Trước khi live, upload file này lên server, ví dụ:
+
+```text
+/home/khachtotcom/khachtot.com/khachtot_live_seed.sql
+```
+
+Nếu upload bằng SCP từ máy local:
+
+```bash
+scp D:/laragon/www/khachtot_landlord_backup_20260607_234753.sql root@SERVER_IP:/home/khachtotcom/khachtot.com/khachtot_live_seed.sql
+```
+
+Nếu dùng hosting panel, upload file SQL vào:
+
+```text
+/home/khachtotcom/khachtot.com/khachtot_live_seed.sql
+```
+
+Tenant DB backup cũng không nằm trong Git. Nếu cần migrate tenant thật, upload/import từng tenant DB riêng sau khi landlord DB chạy ổn.
+
 After setup:
 
 ```bash
@@ -73,6 +103,14 @@ Import landlord DB:
 mysql -u <LIVE_DB_USER> -p --default-character-set=utf8mb4 <LIVE_DB_NAME> < /home/khachtotcom/khachtot.com/khachtot_live_seed.sql
 mysql -u <LIVE_DB_USER> -p <LIVE_DB_NAME> -e "SHOW TABLES LIKE 'tbloptions';"
 ```
+
+Nếu lỗi `No such file or directory`, nghĩa là file landlord DB chưa được upload lên đúng path. Kiểm tra:
+
+```bash
+ls -lh /home/khachtotcom/khachtot.com/khachtot_live_seed.sql
+```
+
+Nếu lỗi `Access denied`, kiểm tra lại user/password DB trong hosting hoặc MySQL.
 
 If the imported DB came from local, check local URLs before opening traffic:
 
