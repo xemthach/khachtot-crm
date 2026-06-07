@@ -43,6 +43,7 @@ modules/kt_saas/storage/*
 !modules/kt_saas/storage/backups/
 modules/kt_saas/storage/backups/*
 !modules/kt_saas/storage/backups/.gitkeep
+!modules/kt_saas/tenant_bootstrap/index.html
 !modules/kt_saas/tenant_bootstrap/manifests/
 modules/kt_saas/tenant_bootstrap/manifests/*
 !modules/kt_saas/tenant_bootstrap/manifests/.gitkeep
@@ -63,9 +64,9 @@ modules/kt_saas/tenant_bootstrap/cache/*
 *.rar
 *.backup
 *_backup_*
-backup/
-backups/
-backup_*/
+/backup/
+/backups/
+/backup_*/
 !application/vendor/**/*.sql
 !modules/**/vendor/**/*.sql
 
