@@ -63,13 +63,23 @@ Never commit production credentials.
 
 ## 5. Install Dependencies
 
-This baseline keeps Perfex runtime vendor files in the repository because there is no root `composer.json`.
+Skip Composer for this baseline.
 
-If the dependency policy changes later, run:
+Reason:
+
+- There is no root `composer.json` in this repository.
+- Perfex runtime dependencies are already committed under `application/vendor` and module vendor folders.
+- Running `composer install` from the web root will fail with `Composer could not find a composer.json file`.
+
+Do not run Composer as `root` on production for this baseline.
+
+If the dependency policy changes later, first confirm a root `composer.json` exists:
 
 ```bash
-composer install --no-dev --optimize-autoloader
+test -f composer.json && composer install --no-dev --optimize-autoloader
 ```
+
+If `composer.json` does not exist, continue with database/config/permissions setup.
 
 ## 6. Configure Database
 
@@ -238,4 +248,3 @@ Cloudflare rollback:
 - set records to DNS only if proxy causes issues
 - revert DNS records
 - disable cache rules that affect dynamic routes
-
