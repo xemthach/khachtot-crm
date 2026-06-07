@@ -20,10 +20,11 @@ Production domains:
 
 Cloudflare:
 
-- `A khachtot.com -> SERVER_IP`
-- `CNAME www -> khachtot.com`
-- `A * -> SERVER_IP` or `CNAME * -> khachtot.com`
-- SSL/TLS mode: Full or Full Strict after origin SSL is ready
+- `A @ -> SERVER_IP` proxied
+- `CNAME www -> khachtot.com` proxied
+- `A * -> SERVER_IP` proxied, or `CNAME * -> khachtot.com`
+- SSL/TLS mode: Full Strict after origin SSL is ready
+- Origin certificate should cover `khachtot.com` and `*.khachtot.com`
 
 ## 3. Clone Code
 
@@ -31,7 +32,7 @@ Cloudflare:
 cd /var/www
 git clone https://github.com/<github_user>/khachtot-crm.git khachtot
 cd /var/www/khachtot
-git checkout v0.9.0-pre-integration
+git checkout v0.9.1-clone-ready
 ```
 
 ## 4. Configure Application
@@ -40,12 +41,16 @@ Create production config from the sample:
 
 ```bash
 cp application/config/app-config.sample.php application/config/app-config.php
+cp application/config/database.example.php application/config/database.php
+cp application/config/config.example.php application/config/config.php
 ```
 
 Edit:
 
 ```text
 application/config/app-config.php
+application/config/database.php
+application/config/config.php
 ```
 
 Set:
@@ -57,6 +62,12 @@ APP_DB_HOSTNAME=localhost
 APP_DB_USERNAME=khachtot_user
 APP_DB_PASSWORD=<strong password>
 APP_DB_NAME=khachtot
+```
+
+Set CodeIgniter public URL:
+
+```text
+$config['base_url'] = 'https://khachtot.com/';
 ```
 
 Never commit production credentials.
@@ -118,12 +129,28 @@ chmod -R 775 /var/www/khachtot/modules/kt_saas/tenant_bootstrap
 
 ## 8. Nginx Config
 
+HTTP to HTTPS redirect:
+
 ```nginx
 server {
     listen 80;
     server_name khachtot.com www.khachtot.com *.khachtot.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+Wildcard HTTPS vhost:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name khachtot.com www.khachtot.com *.khachtot.com;
+
     root /var/www/khachtot;
     index index.php index.html;
+
+    ssl_certificate     /etc/ssl/cloudflare/khachtot.com/origin.pem;
+    ssl_certificate_key /etc/ssl/cloudflare/khachtot.com/origin.key;
 
     client_max_body_size 64M;
 
@@ -131,14 +158,20 @@ server {
         try_files $uri $uri/ /index.php?$query_string;
     }
 
+    location ~* ^/(uploads|media|temp|storage|backups)/.*\.(php|phtml|php3|php4|php5|php7|phar|cgi|pl|py|sh)$ {
+        return 403;
+    }
+
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/php8.1-fpm.sock;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include fastcgi_params;
+        fastcgi_param HTTPS on;
+        fastcgi_param HTTP_X_FORWARDED_PROTO https;
     }
 
-    location ~* /(application|system|vendor|modules/.*/vendor)/ {
+    location ~* ^/(application|system|vendor)/ {
         deny all;
     }
 
@@ -232,7 +265,7 @@ Code rollback:
 ```bash
 cd /var/www/khachtot
 git fetch --tags
-git checkout v0.9.0-pre-integration
+git checkout <previous-tag>
 systemctl reload php*-fpm
 systemctl reload nginx
 ```

@@ -9,6 +9,7 @@ Thumbs.db
 # Local environment / secrets
 .env
 .env.*
+!.env.example
 application/config/app-config.php
 *.pem
 *.key
@@ -33,12 +34,24 @@ uploads/*
 media/*
 !media/index.html
 temp/*
+!temp/.gitkeep
 
 # SaaS runtime storage / generated files
+modules/kt_saas/storage/*
+!modules/kt_saas/storage/.gitkeep
+!modules/kt_saas/storage/index.html
+!modules/kt_saas/storage/backups/
 modules/kt_saas/storage/backups/*
+!modules/kt_saas/storage/backups/.gitkeep
+!modules/kt_saas/tenant_bootstrap/manifests/
 modules/kt_saas/tenant_bootstrap/manifests/*
+!modules/kt_saas/tenant_bootstrap/manifests/.gitkeep
+!modules/kt_saas/tenant_bootstrap/runtime/
 modules/kt_saas/tenant_bootstrap/runtime/*
+!modules/kt_saas/tenant_bootstrap/runtime/.gitkeep
+!modules/kt_saas/tenant_bootstrap/cache/
 modules/kt_saas/tenant_bootstrap/cache/*
+!modules/kt_saas/tenant_bootstrap/cache/.gitkeep
 
 # Backups / dumps / archives
 *.sql
@@ -48,9 +61,11 @@ modules/kt_saas/tenant_bootstrap/cache/*
 *.tar.gz
 *.7z
 *.rar
+*.backup
 *_backup_*
 backup/
 backups/
+backup_*/
 !application/vendor/**/*.sql
 !modules/**/vendor/**/*.sql
 
@@ -64,6 +79,8 @@ backups/
 debug_*
 probe_*
 runtime_probe*
+verify_*
+tmp_*
 scratch*
 check_db.php
 check_route_resolve.php
@@ -81,6 +98,11 @@ tmp-signup-*.png
 
 # Frontend dependencies
 node_modules/
+npm-debug.log
+
+# Service-account style credential exports
+credentials.json
+service-account.json
 
 # Third-party API reference exports with demo credentials/tokens
 docs/MatBao Invoice API/
