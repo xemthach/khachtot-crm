@@ -1,0 +1,692 @@
+<?php defined('BASEPATH') or exit('No direct script access allowed'); ?>
+<?php init_head(); ?>
+<?php
+$settings = is_array($settings ?? null) ? $settings : [];
+$staffMembers = is_array($staff_members ?? null) ? $staff_members : [];
+$formOptions = is_array($form_options ?? null) ? $form_options : [];
+$languageOptions = is_array($formOptions['languages'] ?? null) ? $formOptions['languages'] : ['english'];
+$timezoneOptions = is_array($formOptions['timezones'] ?? null) ? $formOptions['timezones'] : ['UTC'];
+$dateFormatOptions = is_array($formOptions['date_formats'] ?? null) ? $formOptions['date_formats'] : ['Y-m-d|%Y-%m-%d' => '2026-05-27'];
+$numberFormatOptions = is_array($formOptions['number_formats'] ?? null) ? $formOptions['number_formats'] : ['1' => 'Number based (000001)'];
+$prefixSuggestions = is_array($formOptions['prefix_suggestions'] ?? null) ? $formOptions['prefix_suggestions'] : [];
+$quickLinks = is_array($quick_links ?? null) ? $quick_links : [];
+$selectedStaffIds = json_decode((string) ($settings['workspace_settings_staff_ids'] ?? '[]'), true);
+$selectedStaffIds = is_array($selectedStaffIds) ? array_map('intval', $selectedStaffIds) : [];
+$selectedGovernanceViewStaffIds = json_decode((string) ($settings['workspace_governance_view_staff_ids'] ?? '[]'), true);
+$selectedGovernanceViewStaffIds = is_array($selectedGovernanceViewStaffIds) ? array_map('intval', $selectedGovernanceViewStaffIds) : [];
+$selectedGovernanceManageStaffIds = json_decode((string) ($settings['workspace_governance_manage_staff_ids'] ?? '[]'), true);
+$selectedGovernanceManageStaffIds = is_array($selectedGovernanceManageStaffIds) ? array_map('intval', $selectedGovernanceManageStaffIds) : [];
+$currentLogo = trim((string) ($settings['company_logo'] ?? ''));
+$currentLogoDark = trim((string) ($settings['company_logo_dark'] ?? ''));
+$currentFavicon = trim((string) ($settings['favicon'] ?? ''));
+$canEditBranding = !empty($can_edit_branding);
+$canEditFinance = !empty($can_edit_finance);
+$canEditFinanceAdvanced = !empty($can_edit_finance_advanced);
+$canEditMailIdentity = !empty($can_edit_mail_identity);
+$canEditNotifications = !empty($can_edit_notifications);
+$localizationWarning = trim((string) ($localization_warning ?? ''));
+$tenantEmailEntitlements = is_array($tenant_email_entitlements ?? null) ? $tenant_email_entitlements : [];
+$tenantEmailSettings = is_array($tenant_email_settings ?? null) ? $tenant_email_settings : [];
+$tenantOwnCreds = !empty($tenantEmailEntitlements['own_credentials']);
+$tenantCustomSender = !empty($tenantEmailEntitlements['custom_sender']);
+$tenantCustomSmtp = !empty($tenantEmailEntitlements['custom_smtp']) || !empty($tenantEmailEntitlements['brevo_smtp']);
+$tenantBrevoApi = !empty($tenantEmailEntitlements['brevo_api']);
+$csrfTokenName = $this->security->get_csrf_token_name();
+$csrfTokenHash = $this->security->get_csrf_hash();
+?>
+<div id="wrapper">
+    <div class="content">
+        <div class="row">
+            <div class="col-md-12">
+                <h4 class="tw-mb-2"><?php echo html_escape($title ?? 'Workspace Settings'); ?></h4>
+                <p class="text-muted">Tenant workspace settings are isolated from landlord global setup.</p>
+            </div>
+        </div>
+
+        <?php if (!empty($quickLinks)) { ?>
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Workspace Shortcuts</h4>
+                            <hr class="hr-panel-heading" />
+                            <div class="tw-flex tw-flex-wrap tw-gap-3">
+                                <?php foreach ($quickLinks as $link) { ?>
+                                    <a href="<?php echo html_escape($link['href']); ?>" class="btn btn-default">
+                                        <?php echo html_escape($link['label']); ?>
+                                    </a>
+                                <?php } ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        <?php } ?>
+
+        <form action="<?php echo admin_url('kt_saas/tenant_settings'); ?>" method="post" enctype="multipart/form-data" accept-charset="utf-8">
+            <input type="hidden" name="<?php echo html_escape($csrfTokenName); ?>" value="<?php echo html_escape($csrfTokenHash); ?>">
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Company Profile</h4>
+                            <hr class="hr-panel-heading" />
+                            <div class="form-group">
+                                <label for="companyname" class="control-label">Company name</label>
+                                <input type="text" class="form-control" id="companyname" name="companyname" value="<?php echo html_escape($settings['companyname'] ?? ''); ?>" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="company_email" class="control-label">Company email</label>
+                                <input type="email" class="form-control" id="company_email" name="company_email" value="<?php echo html_escape($settings['company_email'] ?? ''); ?>">
+                            </div>
+                            <div class="form-group">
+                                <label for="companyphonenumber" class="control-label">Company phone</label>
+                                <input type="text" class="form-control" id="companyphonenumber" name="companyphonenumber" value="<?php echo html_escape($settings['companyphonenumber'] ?? ''); ?>">
+                            </div>
+                            <div class="form-group">
+                                <label for="company_vat" class="control-label">Tax / VAT number</label>
+                                <input type="text" class="form-control" id="company_vat" name="company_vat" value="<?php echo html_escape($settings['company_vat'] ?? ''); ?>">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Localization</h4>
+                            <hr class="hr-panel-heading" />
+                            <?php if ($localizationWarning !== '') { ?>
+                                <div class="alert alert-warning"><?php echo html_escape($localizationWarning); ?></div>
+                            <?php } ?>
+                            <div class="form-group">
+                                <label for="active_language" class="control-label">Default language</label>
+                                <select name="active_language" id="active_language" class="form-control">
+                                    <?php foreach ($languageOptions as $language) { ?>
+                                        <option value="<?php echo html_escape($language); ?>" <?php echo ($settings['active_language'] ?? 'english') === $language ? 'selected' : ''; ?>>
+                                            <?php echo html_escape(ucfirst($language)); ?>
+                                        </option>
+                                    <?php } ?>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="default_timezone" class="control-label">Default timezone</label>
+                                <select name="default_timezone" id="default_timezone" class="form-control">
+                                    <?php foreach ($timezoneOptions as $timezone) { ?>
+                                        <option value="<?php echo html_escape($timezone); ?>" <?php echo ($settings['default_timezone'] ?? 'UTC') === $timezone ? 'selected' : ''; ?>>
+                                            <?php echo html_escape($timezone); ?>
+                                        </option>
+                                    <?php } ?>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="default_currency" class="control-label">Default currency</label>
+                                <select name="default_currency" id="default_currency" class="form-control">
+                                    <?php foreach ((array) ($form_options['currencies'] ?? []) as $currency) { ?>
+                                        <?php
+                                        $currencyCode = strtoupper((string) ($currency['code'] ?? ''));
+                                        $currencySymbol = trim((string) ($currency['symbol'] ?? ''));
+                                        $label = $currencyCode . ($currencySymbol !== '' ? ' — ' . $currencySymbol : '');
+                                        ?>
+                                        <option value="<?php echo html_escape($currencyCode); ?>" <?php echo strtoupper((string) ($settings['default_currency'] ?? 'USD')) === $currencyCode ? 'selected' : ''; ?>>
+                                            <?php echo html_escape($label); ?>
+                                        </option>
+                                    <?php } ?>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="dateformat" class="control-label">Date format</label>
+                                <select name="dateformat" id="dateformat" class="form-control">
+                                    <?php foreach ($dateFormatOptions as $key => $label) { ?>
+                                        <option value="<?php echo html_escape($key); ?>" <?php echo ($settings['dateformat'] ?? 'Y-m-d|%Y-%m-%d') === $key ? 'selected' : ''; ?>>
+                                            <?php echo html_escape($label); ?>
+                                        </option>
+                                    <?php } ?>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="time_format" class="control-label">Time format</label>
+                                <select name="time_format" id="time_format" class="form-control">
+                                    <option value="24" <?php echo ($settings['time_format'] ?? '24') === '24' ? 'selected' : ''; ?>>24 hours</option>
+                                    <option value="12" <?php echo ($settings['time_format'] ?? '24') === '12' ? 'selected' : ''; ?>>12 hours</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Mail Identity</h4>
+                            <hr class="hr-panel-heading" />
+                            <?php if (!$canEditMailIdentity) { ?>
+                                <div class="alert alert-warning">Your current plan does not allow editing workspace mail identity.</div>
+                            <?php } ?>
+                            <p class="text-muted">SMTP transport and OAuth stay landlord-managed. This section only controls tenant sender identity, reply-to, BCC and shared email layout.</p>
+                            <div class="form-group">
+                                <label for="kt_saas_mail_from_name" class="control-label">Sender display name</label>
+                                <input type="text" class="form-control" id="kt_saas_mail_from_name" name="kt_saas_mail_from_name" value="<?php echo html_escape($settings['kt_saas_mail_from_name'] ?? ''); ?>" maxlength="191" <?php echo !$canEditMailIdentity ? 'disabled' : ''; ?>>
+                                <p class="help-block">If empty, outgoing emails fall back to the tenant company name.</p>
+                            </div>
+                            <div class="form-group">
+                                <label for="kt_saas_mail_reply_to_email" class="control-label">Reply-to email</label>
+                                <input type="email" class="form-control" id="kt_saas_mail_reply_to_email" name="kt_saas_mail_reply_to_email" value="<?php echo html_escape($settings['kt_saas_mail_reply_to_email'] ?? ''); ?>" maxlength="191" <?php echo !$canEditMailIdentity ? 'disabled' : ''; ?>>
+                            </div>
+                            <div class="form-group">
+                                <label for="bcc_emails" class="control-label">BCC emails</label>
+                                <input type="text" class="form-control" id="bcc_emails" name="bcc_emails" value="<?php echo html_escape($settings['bcc_emails'] ?? ''); ?>" <?php echo !$canEditMailIdentity ? 'disabled' : ''; ?>>
+                                <p class="help-block">Comma-separated list for business copy recipients.</p>
+                            </div>
+                            <div class="form-group">
+                                <label for="email_signature" class="control-label">Default email signature</label>
+                                <?php echo render_textarea('email_signature', '', $settings['email_signature'] ?? '', ['rows' => 5, 'id' => 'email_signature', 'data-entities-encode' => 'true', $canEditMailIdentity ? 'data-enabled' : 'disabled' => $canEditMailIdentity ? '1' : 'disabled'], [], '', 'tinymce-tenant-email-signature'); ?>
+                            </div>
+                            <div class="form-group">
+                                <label for="email_header" class="control-label">Email header</label>
+                                <?php echo render_textarea('email_header', '', $settings['email_header'] ?? '', ['rows' => 6, 'id' => 'email_header', 'data-entities-encode' => 'true', $canEditMailIdentity ? 'data-enabled' : 'disabled' => $canEditMailIdentity ? '1' : 'disabled'], [], '', 'tinymce-tenant-email-header'); ?>
+                            </div>
+                            <div class="form-group">
+                                <label for="email_footer" class="control-label">Email footer</label>
+                                <?php echo render_textarea('email_footer', '', $settings['email_footer'] ?? '', ['rows' => 6, 'id' => 'email_footer', 'data-entities-encode' => 'true', $canEditMailIdentity ? 'data-enabled' : 'disabled' => $canEditMailIdentity ? '1' : 'disabled'], [], '', 'tinymce-tenant-email-footer'); ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Invoice Defaults</h4>
+                            <hr class="hr-panel-heading" />
+                            <?php if (!$canEditFinance) { ?>
+                                <div class="alert alert-warning">Your current plan does not allow editing invoice defaults for this workspace.</div>
+                            <?php } ?>
+                            <div class="form-group">
+                                <label for="invoice_company_name" class="control-label">Invoice company name</label>
+                                <input type="text" class="form-control" id="invoice_company_name" name="invoice_company_name" value="<?php echo html_escape($settings['invoice_company_name'] ?? ''); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                            </div>
+                            <div class="form-group">
+                                <label for="invoice_company_address" class="control-label">Invoice address</label>
+                                <input type="text" class="form-control" id="invoice_company_address" name="invoice_company_address" value="<?php echo html_escape($settings['invoice_company_address'] ?? ''); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="invoice_company_city" class="control-label">City</label>
+                                        <input type="text" class="form-control" id="invoice_company_city" name="invoice_company_city" value="<?php echo html_escape($settings['invoice_company_city'] ?? ''); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="invoice_company_state" class="control-label">State</label>
+                                        <input type="text" class="form-control" id="invoice_company_state" name="invoice_company_state" value="<?php echo html_escape($settings['invoice_company_state'] ?? ''); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="invoice_company_country_code" class="control-label">Country code</label>
+                                        <input type="text" class="form-control" id="invoice_company_country_code" name="invoice_company_country_code" value="<?php echo html_escape($settings['invoice_company_country_code'] ?? ''); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="invoice_company_postal_code" class="control-label">Postal code</label>
+                                        <input type="text" class="form-control" id="invoice_company_postal_code" name="invoice_company_postal_code" value="<?php echo html_escape($settings['invoice_company_postal_code'] ?? ''); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="invoice_company_phonenumber" class="control-label">Invoice phone</label>
+                                <input type="text" class="form-control" id="invoice_company_phonenumber" name="invoice_company_phonenumber" value="<?php echo html_escape($settings['invoice_company_phonenumber'] ?? ''); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="invoice_due_after" class="control-label">Invoice due after (days)</label>
+                                        <input type="number" min="0" class="form-control" id="invoice_due_after" name="invoice_due_after" value="<?php echo html_escape($settings['invoice_due_after'] ?? '30'); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="estimate_due_after" class="control-label">Estimate due after (days)</label>
+                                        <input type="number" min="0" class="form-control" id="estimate_due_after" name="estimate_due_after" value="<?php echo html_escape($settings['estimate_due_after'] ?? '7'); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Branding</h4>
+                            <hr class="hr-panel-heading" />
+                            <?php if (!$canEditBranding) { ?>
+                                <div class="alert alert-warning">Your current plan does not allow editing workspace branding.</div>
+                            <?php } ?>
+                            <div class="form-group">
+                                <label class="control-label">Current light logo</label>
+                                <?php if ($currentLogo !== '') { ?>
+                                    <div class="well well-sm">
+                                        <img src="<?php echo base_url('uploads/company/' . $currentLogo); ?>" alt="Tenant logo" style="max-height:50px;max-width:220px;" data-preview-target="company_logo">
+                                        <div class="mtop10">
+                                            <?php if ($canEditBranding) { ?>
+                                                <small class="text-muted">Use the dedicated remove action in Workspace Settings tools.</small>
+                                            <?php } ?>
+                                        </div>
+                                    </div>
+                                <?php } else { ?>
+                                    <p class="text-muted" data-empty-preview="company_logo">No light logo uploaded.</p>
+                                <?php } ?>
+                                <input type="file" name="company_logo" class="form-control" accept=".png,.jpg,.jpeg,.svg,.webp" data-preview-input="company_logo" <?php echo !$canEditBranding ? 'disabled' : ''; ?>>
+                                <p class="help-block">Recommended: transparent PNG or SVG, max width around 400px.</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="control-label">Current dark logo</label>
+                                <?php if ($currentLogoDark !== '') { ?>
+                                    <div class="well well-sm">
+                                        <img src="<?php echo base_url('uploads/company/' . $currentLogoDark); ?>" alt="Tenant dark logo" style="max-height:50px;max-width:220px;" data-preview-target="company_logo_dark">
+                                        <div class="mtop10">
+                                            <?php if ($canEditBranding) { ?>
+                                                <small class="text-muted">Use the dedicated remove action in Workspace Settings tools.</small>
+                                            <?php } ?>
+                                        </div>
+                                    </div>
+                                <?php } else { ?>
+                                    <p class="text-muted" data-empty-preview="company_logo_dark">No dark logo uploaded.</p>
+                                <?php } ?>
+                                <input type="file" name="company_logo_dark" class="form-control" accept=".png,.jpg,.jpeg,.svg,.webp" data-preview-input="company_logo_dark" <?php echo !$canEditBranding ? 'disabled' : ''; ?>>
+                                <p class="help-block">Use a light-on-dark variant if your tenant uses dark branding.</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="control-label">Current favicon</label>
+                                <?php if ($currentFavicon !== '') { ?>
+                                    <div class="well well-sm">
+                                        <img src="<?php echo base_url('uploads/company/' . $currentFavicon); ?>" alt="Tenant favicon" style="max-height:32px;max-width:32px;" data-preview-target="favicon">
+                                        <div class="mtop10">
+                                            <?php if ($canEditBranding) { ?>
+                                                <small class="text-muted">Use the dedicated remove action in Workspace Settings tools.</small>
+                                            <?php } ?>
+                                        </div>
+                                    </div>
+                                <?php } else { ?>
+                                    <p class="text-muted" data-empty-preview="favicon">No favicon uploaded.</p>
+                                <?php } ?>
+                                <input type="file" name="favicon" class="form-control" accept=".png,.ico,.svg,.webp" data-preview-input="favicon" <?php echo !$canEditBranding ? 'disabled' : ''; ?>>
+                                <p class="help-block">Best results: square icon, 32x32 or 64x64.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Finance Advanced</h4>
+                            <hr class="hr-panel-heading" />
+                            <?php if (!$canEditFinanceAdvanced) { ?>
+                                <div class="alert alert-warning">Your current plan does not allow editing advanced invoice, estimate and recurring behavior for this workspace.</div>
+                            <?php } ?>
+                            <p class="text-muted">These toggles stay tenant-local and control document visibility, PDF presentation, client area behavior and recurring invoice actions without exposing cron or gateway infrastructure.</p>
+
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h5 class="tw-font-semibold">Invoice behavior</h5>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="view_invoice_only_logged_in" name="view_invoice_only_logged_in" value="1" <?php echo ($settings['view_invoice_only_logged_in'] ?? '0') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="view_invoice_only_logged_in">Require client login to view invoices</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="exclude_invoice_from_client_area_with_draft_status" name="exclude_invoice_from_client_area_with_draft_status" value="1" <?php echo ($settings['exclude_invoice_from_client_area_with_draft_status'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="exclude_invoice_from_client_area_with_draft_status">Hide draft invoices from client area</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="show_sale_agent_on_invoices" name="show_sale_agent_on_invoices" value="1" <?php echo ($settings['show_sale_agent_on_invoices'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="show_sale_agent_on_invoices">Show sale agent on invoices</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="show_project_on_invoice" name="show_project_on_invoice" value="1" <?php echo ($settings['show_project_on_invoice'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="show_project_on_invoice">Show project name on invoices</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="show_total_paid_on_invoice" name="show_total_paid_on_invoice" value="1" <?php echo ($settings['show_total_paid_on_invoice'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="show_total_paid_on_invoice">Show total paid on invoices</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="show_credits_applied_on_invoice" name="show_credits_applied_on_invoice" value="1" <?php echo ($settings['show_credits_applied_on_invoice'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="show_credits_applied_on_invoice">Show credits applied on invoices</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="show_amount_due_on_invoice" name="show_amount_due_on_invoice" value="1" <?php echo ($settings['show_amount_due_on_invoice'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="show_amount_due_on_invoice">Show amount due on invoices</label>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <h5 class="tw-font-semibold">Estimate & recurring behavior</h5>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="view_estimate_only_logged_in" name="view_estimate_only_logged_in" value="1" <?php echo ($settings['view_estimate_only_logged_in'] ?? '0') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="view_estimate_only_logged_in">Require client login to view estimates</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="show_sale_agent_on_estimates" name="show_sale_agent_on_estimates" value="1" <?php echo ($settings['show_sale_agent_on_estimates'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="show_sale_agent_on_estimates">Show sale agent on estimates</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="show_project_on_estimate" name="show_project_on_estimate" value="1" <?php echo ($settings['show_project_on_estimate'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="show_project_on_estimate">Show project name on estimates</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="estimate_auto_convert_to_invoice_on_client_accept" name="estimate_auto_convert_to_invoice_on_client_accept" value="1" <?php echo ($settings['estimate_auto_convert_to_invoice_on_client_accept'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="estimate_auto_convert_to_invoice_on_client_accept">Auto-convert estimate to invoice after client acceptance</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="exclude_estimate_from_client_area_with_draft_status" name="exclude_estimate_from_client_area_with_draft_status" value="1" <?php echo ($settings['exclude_estimate_from_client_area_with_draft_status'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="exclude_estimate_from_client_area_with_draft_status">Hide draft estimates from client area</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="show_subscriptions_in_customers_area" name="show_subscriptions_in_customers_area" value="1" <?php echo ($settings['show_subscriptions_in_customers_area'] ?? '1') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="show_subscriptions_in_customers_area">Show subscriptions in customer area</label>
+                                    </div>
+                                    <div class="checkbox checkbox-primary">
+                                        <input type="checkbox" id="create_invoice_from_recurring_only_on_paid_invoices" name="create_invoice_from_recurring_only_on_paid_invoices" value="1" <?php echo ($settings['create_invoice_from_recurring_only_on_paid_invoices'] ?? '0') === '1' ? 'checked' : ''; ?> <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                        <label for="create_invoice_from_recurring_only_on_paid_invoices">Only generate recurring invoices when the previous recurring invoice is paid</label>
+                                    </div>
+                                    <div class="form-group mtop15">
+                                        <label for="new_recurring_invoice_action" class="control-label">Recurring invoice action</label>
+                                        <select name="new_recurring_invoice_action" id="new_recurring_invoice_action" class="form-control" <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                            <option value="generate_and_send" <?php echo ($settings['new_recurring_invoice_action'] ?? 'generate_and_send') === 'generate_and_send' ? 'selected' : ''; ?>>Generate and send</option>
+                                            <option value="generate_unpaid" <?php echo ($settings['new_recurring_invoice_action'] ?? 'generate_and_send') === 'generate_unpaid' ? 'selected' : ''; ?>>Generate as unpaid</option>
+                                            <option value="generate_draft" <?php echo ($settings['new_recurring_invoice_action'] ?? 'generate_and_send') === 'generate_draft' ? 'selected' : ''; ?>>Generate as draft</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="after_subscription_payment_captured" class="control-label">After subscription payment succeeds</label>
+                                        <select name="after_subscription_payment_captured" id="after_subscription_payment_captured" class="form-control" <?php echo !$canEditFinanceAdvanced ? 'disabled' : ''; ?>>
+                                            <option value="send_invoice_and_receipt" <?php echo ($settings['after_subscription_payment_captured'] ?? 'send_invoice_and_receipt') === 'send_invoice_and_receipt' ? 'selected' : ''; ?>>Send invoice and payment receipt</option>
+                                            <option value="send_invoice" <?php echo ($settings['after_subscription_payment_captured'] ?? 'send_invoice_and_receipt') === 'send_invoice' ? 'selected' : ''; ?>>Send invoice only</option>
+                                            <option value="send_payment_receipt" <?php echo ($settings['after_subscription_payment_captured'] ?? 'send_invoice_and_receipt') === 'send_payment_receipt' ? 'selected' : ''; ?>>Send payment receipt only</option>
+                                            <option value="nothing" <?php echo ($settings['after_subscription_payment_captured'] ?? 'send_invoice_and_receipt') === 'nothing' ? 'selected' : ''; ?>>Do nothing</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info">
+                                Advanced finance behavior is still enforced per tenant database and does not expose delete-number decrements, cron execution timing, or landlord payment gateway credentials.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Finance Basics</h4>
+                            <hr class="hr-panel-heading" />
+                            <?php if (!$canEditFinance) { ?>
+                                <div class="alert alert-warning">Your current plan does not allow editing Finance Basics.</div>
+                            <?php } ?>
+                            <p class="text-muted">These settings control tenant-specific numbering and default invoice text without exposing landlord payment infrastructure.</p>
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <h5 class="tw-font-semibold">Invoices</h5>
+                                    <div class="form-group">
+                                        <label for="invoice_prefix" class="control-label">Invoice prefix</label>
+                                        <input type="text" class="form-control" id="invoice_prefix" name="invoice_prefix" value="<?php echo html_escape($settings['invoice_prefix'] ?? ($prefixSuggestions['invoice'] ?? 'INV-')); ?>" maxlength="20" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="next_invoice_number" class="control-label">Next invoice number</label>
+                                        <input type="number" min="1" class="form-control" id="next_invoice_number" name="next_invoice_number" value="<?php echo html_escape($settings['next_invoice_number'] ?? '1'); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="invoice_number_format" class="control-label">Invoice number format</label>
+                                        <select name="invoice_number_format" id="invoice_number_format" class="form-control" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                            <?php foreach ($numberFormatOptions as $key => $label) { ?>
+                                                <option value="<?php echo html_escape($key); ?>" <?php echo ($settings['invoice_number_format'] ?? '1') === (string) $key ? 'selected' : ''; ?>>
+                                                    <?php echo html_escape($label); ?>
+                                                </option>
+                                            <?php } ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <h5 class="tw-font-semibold">Estimates</h5>
+                                    <div class="form-group">
+                                        <label for="estimate_prefix" class="control-label">Estimate prefix</label>
+                                        <input type="text" class="form-control" id="estimate_prefix" name="estimate_prefix" value="<?php echo html_escape($settings['estimate_prefix'] ?? ($prefixSuggestions['estimate'] ?? 'EST-')); ?>" maxlength="20" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="next_estimate_number" class="control-label">Next estimate number</label>
+                                        <input type="number" min="1" class="form-control" id="next_estimate_number" name="next_estimate_number" value="<?php echo html_escape($settings['next_estimate_number'] ?? '1'); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="estimate_number_format" class="control-label">Estimate number format</label>
+                                        <select name="estimate_number_format" id="estimate_number_format" class="form-control" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                            <?php foreach ($numberFormatOptions as $key => $label) { ?>
+                                                <option value="<?php echo html_escape($key); ?>" <?php echo ($settings['estimate_number_format'] ?? '1') === (string) $key ? 'selected' : ''; ?>>
+                                                    <?php echo html_escape($label); ?>
+                                                </option>
+                                            <?php } ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <h5 class="tw-font-semibold">Credit Notes</h5>
+                                    <div class="form-group">
+                                        <label for="credit_note_prefix" class="control-label">Credit note prefix</label>
+                                        <input type="text" class="form-control" id="credit_note_prefix" name="credit_note_prefix" value="<?php echo html_escape($settings['credit_note_prefix'] ?? ($prefixSuggestions['credit_note'] ?? 'CN-')); ?>" maxlength="20" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="next_credit_note_number" class="control-label">Next credit note number</label>
+                                        <input type="number" min="1" class="form-control" id="next_credit_note_number" name="next_credit_note_number" value="<?php echo html_escape($settings['next_credit_note_number'] ?? '1'); ?>" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="credit_note_number_format" class="control-label">Credit note number format</label>
+                                        <select name="credit_note_number_format" id="credit_note_number_format" class="form-control" <?php echo !$canEditFinance ? 'disabled' : ''; ?>>
+                                            <?php foreach ($numberFormatOptions as $key => $label) { ?>
+                                                <option value="<?php echo html_escape($key); ?>" <?php echo ($settings['credit_note_number_format'] ?? '1') === (string) $key ? 'selected' : ''; ?>>
+                                                    <?php echo html_escape($label); ?>
+                                                </option>
+                                            <?php } ?>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="predefined_clientnote_invoice" class="control-label">Default invoice client note</label>
+                                        <textarea class="form-control" id="predefined_clientnote_invoice" name="predefined_clientnote_invoice" rows="4" <?php echo !$canEditFinance ? 'disabled' : ''; ?>><?php echo html_escape($settings['predefined_clientnote_invoice'] ?? ''); ?></textarea>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="predefined_terms_invoice" class="control-label">Default invoice terms</label>
+                                        <textarea class="form-control" id="predefined_terms_invoice" name="predefined_terms_invoice" rows="4" <?php echo !$canEditFinance ? 'disabled' : ''; ?>><?php echo html_escape($settings['predefined_terms_invoice'] ?? ''); ?></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="alert alert-warning">
+                                Sequence changes only affect this tenant workspace because the values are stored in the tenant database, not in landlord global settings.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Notification Preferences</h4>
+                            <hr class="hr-panel-heading" />
+                            <?php if (!$canEditNotifications) { ?>
+                                <div class="alert alert-warning">Your current plan does not allow editing workspace notification preferences.</div>
+                            <?php } ?>
+                            <p class="text-muted">These settings control tenant reminder timings and customer-facing delivery behavior. Cron schedule, queue workers and push infrastructure remain landlord-managed.</p>
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <div class="form-group">
+                                        <label for="automatically_send_invoice_overdue_reminder_after" class="control-label">Invoice overdue reminder after (days)</label>
+                                        <input type="number" min="0" class="form-control" id="automatically_send_invoice_overdue_reminder_after" name="automatically_send_invoice_overdue_reminder_after" value="<?php echo html_escape($settings['automatically_send_invoice_overdue_reminder_after'] ?? '0'); ?>" <?php echo !$canEditNotifications ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="form-group">
+                                        <label for="automatically_resend_invoice_overdue_reminder_after" class="control-label">Re-send overdue reminder after (days)</label>
+                                        <input type="number" min="0" class="form-control" id="automatically_resend_invoice_overdue_reminder_after" name="automatically_resend_invoice_overdue_reminder_after" value="<?php echo html_escape($settings['automatically_resend_invoice_overdue_reminder_after'] ?? '0'); ?>" <?php echo !$canEditNotifications ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="form-group">
+                                        <label for="invoice_due_notice_before" class="control-label">Invoice due reminder before (days)</label>
+                                        <input type="number" min="0" class="form-control" id="invoice_due_notice_before" name="invoice_due_notice_before" value="<?php echo html_escape($settings['invoice_due_notice_before'] ?? '0'); ?>" <?php echo !$canEditNotifications ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="form-group">
+                                        <label for="invoice_due_notice_resend_after" class="control-label">Re-send due reminder after (days)</label>
+                                        <input type="number" min="0" class="form-control" id="invoice_due_notice_resend_after" name="invoice_due_notice_resend_after" value="<?php echo html_escape($settings['invoice_due_notice_resend_after'] ?? '0'); ?>" <?php echo !$canEditNotifications ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="form-group">
+                                        <label for="send_estimate_expiry_reminder_before" class="control-label">Estimate expiry reminder before (days)</label>
+                                        <input type="number" min="0" class="form-control" id="send_estimate_expiry_reminder_before" name="send_estimate_expiry_reminder_before" value="<?php echo html_escape($settings['send_estimate_expiry_reminder_before'] ?? '0'); ?>" <?php echo !$canEditNotifications ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-group">
+                                        <label for="contract_expiration_before" class="control-label">Contract expiry reminder before (days)</label>
+                                        <input type="number" min="0" class="form-control" id="contract_expiration_before" name="contract_expiration_before" value="<?php echo html_escape($settings['contract_expiration_before'] ?? '0'); ?>" <?php echo !$canEditNotifications ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-group">
+                                        <label for="contract_sign_reminder_every_days" class="control-label">Contract sign reminder every (days)</label>
+                                        <input type="number" min="0" class="form-control" id="contract_sign_reminder_every_days" name="contract_sign_reminder_every_days" value="<?php echo html_escape($settings['contract_sign_reminder_every_days'] ?? '0'); ?>" <?php echo !$canEditNotifications ? 'disabled' : ''; ?>>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="checkbox checkbox-primary">
+                                <input type="checkbox" id="attach_invoice_to_payment_receipt_email" name="attach_invoice_to_payment_receipt_email" value="1" <?php echo ($settings['attach_invoice_to_payment_receipt_email'] ?? '0') === '1' ? 'checked' : ''; ?> <?php echo !$canEditNotifications ? 'disabled' : ''; ?>>
+                                <label for="attach_invoice_to_payment_receipt_email">Attach invoice PDF when sending payment receipt emails</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="panel_s">
+                        <div class="panel-body">
+                            <h4 class="no-margin">Workspace Access</h4>
+                            <hr class="hr-panel-heading" />
+                            <p class="text-muted">Tenant admins always retain access. Select non-admin staff members who may also manage workspace settings.</p>
+                            <div class="form-group">
+                                <label for="workspace_settings_staff_ids" class="control-label">Allowed staff members</label>
+                                <select name="workspace_settings_staff_ids[]" id="workspace_settings_staff_ids" class="form-control" multiple size="6">
+                                    <?php foreach ($staffMembers as $staff) { ?>
+                                        <?php $staffId = (int) ($staff['staffid'] ?? 0); ?>
+                                        <option value="<?php echo $staffId; ?>" <?php echo in_array($staffId, $selectedStaffIds, true) ? 'selected' : ''; ?>>
+                                            <?php echo html_escape(trim((string) (($staff['firstname'] ?? '') . ' ' . ($staff['lastname'] ?? ''))) ?: ($staff['email'] ?? ('Staff #' . $staffId))); ?>
+                                            <?php echo !empty($staff['admin']) ? ' [admin]' : ''; ?>
+                                        </option>
+                                    <?php } ?>
+                                </select>
+                            </div>
+
+                            <hr />
+                            <p class="text-muted">Governance access controls tenant-local staff, roles and departments without exposing any landlord-only setup pages.</p>
+                            <div class="form-group">
+                                <label for="workspace_governance_view_staff_ids" class="control-label">Governance viewers</label>
+                                <select name="workspace_governance_view_staff_ids[]" id="workspace_governance_view_staff_ids" class="form-control" multiple size="6">
+                                    <?php foreach ($staffMembers as $staff) { ?>
+                                        <?php $staffId = (int) ($staff['staffid'] ?? 0); ?>
+                                        <option value="<?php echo $staffId; ?>" <?php echo in_array($staffId, $selectedGovernanceViewStaffIds, true) ? 'selected' : ''; ?>>
+                                            <?php echo html_escape(trim((string) (($staff['firstname'] ?? '') . ' ' . ($staff['lastname'] ?? ''))) ?: ($staff['email'] ?? ('Staff #' . $staffId))); ?>
+                                            <?php echo !empty($staff['admin']) ? ' [admin]' : ''; ?>
+                                        </option>
+                                    <?php } ?>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="workspace_governance_manage_staff_ids" class="control-label">Governance managers</label>
+                                <select name="workspace_governance_manage_staff_ids[]" id="workspace_governance_manage_staff_ids" class="form-control" multiple size="6">
+                                    <?php foreach ($staffMembers as $staff) { ?>
+                                        <?php $staffId = (int) ($staff['staffid'] ?? 0); ?>
+                                        <option value="<?php echo $staffId; ?>" <?php echo in_array($staffId, $selectedGovernanceManageStaffIds, true) ? 'selected' : ''; ?>>
+                                            <?php echo html_escape(trim((string) (($staff['firstname'] ?? '') . ' ' . ($staff['lastname'] ?? ''))) ?: ($staff['email'] ?? ('Staff #' . $staffId))); ?>
+                                            <?php echo !empty($staff['admin']) ? ' [admin]' : ''; ?>
+                                        </option>
+                                    <?php } ?>
+                                </select>
+                            </div>
+
+                            <div class="alert alert-info">
+                                Tenant settings remain isolated from landlord-only areas such as modules, cron, email server, global gateways, API keys, backup and system setup.
+                            </div>
+
+                            <div class="btn-bottom-toolbar text-right">
+                                <button type="submit" class="btn btn-primary"><?php echo _l('submit'); ?></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+<?php init_tail(); ?>
+<script>
+if (typeof init_editor === 'function') {
+    if (<?php echo $canEditMailIdentity ? 'true' : 'false'; ?>) {
+        init_editor('.tinymce-tenant-email-signature,.tinymce-tenant-email-header,.tinymce-tenant-email-footer');
+    }
+}
+document.querySelectorAll('[data-preview-input]').forEach(function (input) {
+    input.addEventListener('change', function () {
+        var key = input.getAttribute('data-preview-input');
+        var file = input.files && input.files[0] ? input.files[0] : null;
+        if (!file || !file.type.match(/^image\\//)) {
+            return;
+        }
+
+        var target = document.querySelector('[data-preview-target="' + key + '"]');
+        var emptyState = document.querySelector('[data-empty-preview="' + key + '"]');
+        if (!target) {
+            target = document.createElement('img');
+            target.setAttribute('data-preview-target', key);
+            target.setAttribute('style', key === 'favicon' ? 'max-height:32px;max-width:32px;' : 'max-height:50px;max-width:220px;');
+            target.setAttribute('alt', 'Preview');
+            input.parentNode.insertBefore(target, input);
+        }
+
+        if (emptyState) {
+            emptyState.style.display = 'none';
+        }
+
+        var reader = new FileReader();
+        reader.onload = function (event) {
+            target.src = event.target.result;
+            target.classList.add('tw-mb-3');
+        };
+        reader.readAsDataURL(file);
+    });
+});
+</script>

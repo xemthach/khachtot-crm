@@ -1,0 +1,130 @@
+<?php defined('BASEPATH') or exit('No direct script access allowed'); ?>
+<?php init_head(); ?>
+<div id="wrapper">
+    <div class="content">
+        <div class="row">
+            <div class="col-md-5">
+                <div class="panel_s">
+                    <div class="panel-body">
+                        <h4><?php echo html_escape($edit_plan ? _l('kt_saas_edit_plan') : _l('kt_saas_add_plan')); ?></h4>
+                        <?php echo form_open(admin_url('kt_saas/plans' . ($edit_plan ? '/' . $edit_plan['id'] : ''))); ?>
+                        <?php echo render_input('plan_code', 'kt_saas_plan_code', $edit_plan['plan_code'] ?? '', 'text', ['required' => true]); ?>
+                        <?php echo render_input('plan_name', 'kt_saas_plan_name', $edit_plan['plan_name'] ?? '', 'text', ['required' => true]); ?>
+                        <div class="form-group">
+                            <label for="billing_cycle"><?php echo _l('kt_saas_billing_cycle'); ?></label>
+                            <select name="billing_cycle" id="billing_cycle" class="form-control selectpicker">
+                                <?php foreach ($billing_cycles as $key => $label) { ?>
+                                    <option value="<?php echo html_escape($key); ?>" <?php echo ($edit_plan['billing_cycle'] ?? 'monthly') === $key ? 'selected' : ''; ?>><?php echo html_escape($label); ?></option>
+                                <?php } ?>
+                            </select>
+                        </div>
+                        <?php echo render_input('price', 'kt_saas_price', $edit_plan['price'] ?? '0', 'number', ['step' => '0.01']); ?>
+                        <?php echo render_input('setup_fee', 'kt_saas_setup_fee', $edit_plan['setup_fee'] ?? '0', 'number', ['step' => '0.01']); ?>
+                        <?php echo render_input('currency', 'kt_saas_currency', $edit_plan['currency'] ?? 'USD'); ?>
+                        <?php echo render_input('trial_days', 'kt_saas_trial_days', $edit_plan['trial_days'] ?? '0', 'number'); ?>
+                        <?php echo render_input('grace_days', 'kt_saas_grace_days', $edit_plan['grace_days'] ?? '0', 'number'); ?>
+                        <div class="form-group">
+                            <label for="module_codes" class="control-label"><?php echo _l('kt_saas_module_codes'); ?></label>
+                            <select name="module_codes[]" id="module_codes" class="selectpicker" data-width="100%" data-none-selected-text="<?php echo _l('dropdown_non_selected_tex'); ?>" multiple data-actions-box="true" data-live-search="true">
+                                <?php
+                                $selected_modules = isset($edit_plan['module_json']) ? json_decode($edit_plan['module_json'], true) ?: [] : [];
+                                foreach ($available_modules as $module) {
+                                ?>
+                                    <option value="<?php echo html_escape($module['system_name']); ?>" <?php echo in_array($module['system_name'], $selected_modules, true) ? 'selected' : ''; ?>>
+                                        <?php echo html_escape($module['headers']['module_name'] ?? $module['system_name']); ?> (<?php echo html_escape($module['system_name']); ?>)
+                                    </option>
+                                <?php } ?>
+                            </select>
+                        </div>
+                        <?php
+                        $workspaceFeatureCatalog = is_array($workspace_feature_catalog ?? null) ? $workspace_feature_catalog : [];
+                        $selectedWorkspaceFeatures = is_array($edit_plan_workspace_features ?? null) ? $edit_plan_workspace_features : [];
+                        $integrationFeatureCatalog = is_array($integration_feature_catalog ?? null) ? $integration_feature_catalog : [];
+                        $selectedIntegrationFeatures = is_array($edit_plan_integration_features ?? null) ? $edit_plan_integration_features : [];
+                        ?>
+                        <div class="form-group">
+                            <label class="control-label">Workspace governance capabilities</label>
+                            <div class="panel panel-default tw-mt-2">
+                                <div class="panel-body">
+                                    <?php foreach ($workspaceFeatureCatalog as $featureKey => $feature) { ?>
+                                        <div class="checkbox checkbox-primary">
+                                            <input type="checkbox" id="feature_<?php echo html_escape(md5($featureKey)); ?>" name="workspace_feature_keys[]" value="<?php echo html_escape($featureKey); ?>" <?php echo in_array($featureKey, $selectedWorkspaceFeatures, true) ? 'checked' : ''; ?>>
+                                            <label for="feature_<?php echo html_escape(md5($featureKey)); ?>">
+                                                <?php echo html_escape((string) ($feature['label'] ?? $featureKey)); ?>
+                                                <small class="display-block text-muted"><?php echo html_escape((string) ($feature['description'] ?? '')); ?></small>
+                                            </label>
+                                        </div>
+                                    <?php } ?>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="control-label">Integration module capabilities</label>
+                            <div class="panel panel-default tw-mt-2">
+                                <div class="panel-body">
+                                    <?php foreach ($integrationFeatureCatalog as $featureKey => $feature) { ?>
+                                        <div class="checkbox checkbox-primary">
+                                            <input type="checkbox" id="integration_feature_<?php echo html_escape(md5($featureKey)); ?>" name="integration_feature_keys[]" value="<?php echo html_escape($featureKey); ?>" <?php echo in_array($featureKey, $selectedIntegrationFeatures, true) ? 'checked' : ''; ?>>
+                                            <label for="integration_feature_<?php echo html_escape(md5($featureKey)); ?>">
+                                                <?php echo html_escape((string) ($feature['label'] ?? $featureKey)); ?>
+                                                <small class="display-block text-muted"><?php echo html_escape((string) ($feature['description'] ?? '')); ?></small>
+                                            </label>
+                                        </div>
+                                    <?php } ?>
+                                </div>
+                            </div>
+                        </div>
+                        <?php echo render_input('limit_staff', 'kt_saas_limit_staff', $edit_plan['limit_staff'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_clients', 'kt_saas_limit_clients', $edit_plan['limit_clients'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_storage_mb', 'kt_saas_limit_storage_mb', $edit_plan['limit_storage_mb'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_invoices', 'kt_saas_limit_invoices', $edit_plan['limit_invoices'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_projects', 'kt_saas_limit_projects', $edit_plan['limit_projects'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_api_requests_daily', 'kt_saas_limit_api_requests_daily', $edit_plan['limit_api_requests_daily'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_warehouses', 'kt_saas_limit_warehouses', $edit_plan['limit_warehouses'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_automations', 'kt_saas_limit_automations', $edit_plan['limit_automations'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_roles', 'kt_saas_limit_roles', $edit_plan['limit_roles'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_departments', 'kt_saas_limit_departments', $edit_plan['limit_departments'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_governance_viewers', 'kt_saas_limit_governance_viewers', $edit_plan['limit_governance_viewers'] ?? '0', 'number'); ?>
+                        <?php echo render_input('limit_governance_managers', 'kt_saas_limit_governance_managers', $edit_plan['limit_governance_managers'] ?? '0', 'number'); ?>
+                        <?php echo render_textarea('notes', 'kt_saas_notes', $edit_plan['notes'] ?? ''); ?>
+                        <div class="checkbox checkbox-primary"><input type="checkbox" id="is_public" name="is_public" <?php echo !isset($edit_plan['is_public']) || $edit_plan['is_public'] ? 'checked' : ''; ?>><label for="is_public"><?php echo _l('kt_saas_is_public'); ?></label></div>
+                        <div class="checkbox checkbox-primary"><input type="checkbox" id="is_active" name="is_active" <?php echo !isset($edit_plan['is_active']) || $edit_plan['is_active'] ? 'checked' : ''; ?>><label for="is_active"><?php echo _l('kt_saas_active'); ?></label></div>
+                        <button type="submit" class="btn btn-primary"><?php echo _l('kt_saas_save'); ?></button>
+                        <?php if ($edit_plan) { ?><a href="<?php echo admin_url('kt_saas/plans'); ?>" class="btn btn-default"><?php echo _l('kt_saas_cancel'); ?></a><?php } ?>
+                        <?php echo form_close(); ?>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-7">
+                <div class="panel_s"><div class="panel-body">
+                    <h4><?php echo html_escape($title); ?></h4>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead><tr><th><?php echo _l('kt_saas_plan_name'); ?></th><th><?php echo _l('kt_saas_price'); ?></th><th><?php echo _l('kt_saas_limits'); ?></th><th><?php echo _l('kt_saas_actions'); ?></th></tr></thead>
+                            <tbody>
+                            <?php foreach ($plans as $plan) { ?>
+                                <tr>
+                                    <td><strong><?php echo html_escape($plan['plan_name']); ?></strong><br><small><?php echo html_escape($plan['plan_code']); ?></small></td>
+                                    <td><?php echo html_escape($plan['price'] . ' ' . $plan['currency']); ?><br><small><?php echo html_escape($plan['billing_cycle']); ?></small></td>
+                                    <td>
+                                        <small>
+                                            Staff: <?php echo (int) $plan['limit_staff']; ?> |
+                                            Clients: <?php echo (int) $plan['limit_clients']; ?> |
+                                            Storage: <?php echo (int) $plan['limit_storage_mb']; ?> MB |
+                                            Roles: <?php echo (int) ($plan['limit_roles'] ?? 0); ?> |
+                                            Departments: <?php echo (int) ($plan['limit_departments'] ?? 0); ?>
+                                        </small>
+                                    </td>
+                                    <td><a href="<?php echo admin_url('kt_saas/plans/' . $plan['id']); ?>" class="btn btn-default btn-sm"><?php echo _l('kt_saas_edit'); ?></a></td>
+                                </tr>
+                            <?php } ?>
+                            <?php if (empty($plans)) { ?><tr><td colspan="4"><?php echo _l('kt_saas_no_records'); ?></td></tr><?php } ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div></div>
+            </div>
+        </div>
+    </div>
+</div>
+<?php init_tail(); ?>

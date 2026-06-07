@@ -1,0 +1,1326 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+class Kt_inventory extends AdminController
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->model(KT_INVENTORY_MODULE . '/kt_inventory_model');
+        $this->load->helper(KT_INVENTORY_MODULE . '/kt_inventory');
+    }
+
+    public function index()
+    {
+        $this->requireCapability('kt_inventory_view');
+
+        $data['title'] = _l('kt_inventory_dashboard');
+        $data['summary'] = $this->kt_inventory_model->get_dashboard_data();
+        $this->render(KT_INVENTORY_MODULE . '/dashboard', $data);
+    }
+
+    public function warehouses($id = null)
+    {
+        $this->requireCapability('kt_inventory_manage_warehouses');
+
+        if ($this->input->post()) {
+            $result = $this->kt_inventory_model->save_warehouse($this->input->post(), $id ?: null);
+            $this->flashResult($result, 'kt_inventory_record_updated');
+            redirect(admin_url('kt_inventory/warehouses'));
+        }
+
+        $data['title'] = _l('kt_inventory_warehouses');
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses();
+        $data['staff_members'] = $this->kt_inventory_model->get_staff_members();
+        $data['edit_warehouse'] = $id ? $this->kt_inventory_model->get_warehouse($id) : null;
+        $this->render(KT_INVENTORY_MODULE . '/warehouses', $data);
+    }
+
+    public function delete_warehouse($id)
+    {
+        $this->requireCapability('kt_inventory_manage_warehouses');
+
+        if ($this->kt_inventory_model->delete_warehouse((int) $id)) {
+            set_alert('success', _l('kt_inventory_record_deleted'));
+        } else {
+            set_alert('warning', _l('kt_inventory_has_transactions_error'));
+        }
+
+        redirect(admin_url('kt_inventory/warehouses'));
+    }
+
+    public function items($id = null)
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+
+        if ($this->input->post()) {
+            $result = $this->kt_inventory_model->save_inventory_item($this->input->post(), $id ?: null);
+            $this->flashResult($result, 'kt_inventory_record_updated');
+            redirect(admin_url('kt_inventory/items'));
+        }
+
+        $data['title'] = _l('kt_inventory_items');
+        $data['items'] = $this->kt_inventory_model->get_inventory_items();
+        $data['core_items'] = $this->kt_inventory_model->get_core_items();
+        $data['edit_item'] = $id ? $this->kt_inventory_model->get_inventory_item($id) : null;
+        $data['item_barcodes'] = $id ? $this->kt_inventory_model->get_item_barcodes((int) $id) : [];
+        $data['barcode_types'] = kt_inventory_barcode_types();
+        $data['barcode_sources'] = kt_inventory_barcode_sources();
+        $this->render(KT_INVENTORY_MODULE . '/items', $data);
+    }
+
+    public function item_barcodes($inventoryItemId)
+    {
+        $this->requireCapability('kt_inventory_view');
+
+        $item = $this->kt_inventory_model->get_inventory_item((int) $inventoryItemId);
+        if (!$item) {
+            show_404();
+        }
+
+        $data['title'] = _l('kt_inventory_barcodes') . ' - ' . $item['name'];
+        $data['item'] = $item;
+        $data['barcodes'] = $this->kt_inventory_model->get_item_barcodes((int) $inventoryItemId);
+        $data['barcode_types'] = kt_inventory_barcode_types();
+        $data['barcode_sources'] = kt_inventory_barcode_sources();
+        $this->render(KT_INVENTORY_MODULE . '/item_barcodes', $data);
+    }
+
+    public function add_item_barcode($inventoryItemId)
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+        $result = $this->kt_inventory_model->add_item_barcode(array_merge($this->input->post(), [
+            'inventory_item_id' => (int) $inventoryItemId,
+        ]));
+        $this->flashResult($result, 'kt_inventory_barcode_saved');
+        redirect(admin_url('kt_inventory/items/' . (int) $inventoryItemId . '#barcodes'));
+    }
+
+    public function update_item_barcode($barcodeId)
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+        $barcode = $this->kt_inventory_model->get_barcode((int) $barcodeId);
+        if (!$barcode) {
+            show_404();
+        }
+
+        $result = $this->kt_inventory_model->update_item_barcode((int) $barcodeId, $this->input->post());
+        $this->flashResult($result, 'kt_inventory_barcode_saved');
+        redirect(admin_url('kt_inventory/items/' . (int) $barcode['inventory_item_id'] . '#barcodes'));
+    }
+
+    public function delete_item_barcode($barcodeId)
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+        $barcode = $this->kt_inventory_model->get_barcode((int) $barcodeId);
+        if (!$barcode) {
+            show_404();
+        }
+
+        if ($this->kt_inventory_model->delete_item_barcode((int) $barcodeId)) {
+            set_alert('success', _l('kt_inventory_record_updated'));
+        } else {
+            set_alert('warning', _l('kt_inventory_invalid_request'));
+        }
+
+        redirect(admin_url('kt_inventory/items/' . (int) $barcode['inventory_item_id'] . '#barcodes'));
+    }
+
+    public function set_primary_barcode($inventoryItemId, $barcodeId)
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+        if ($this->kt_inventory_model->set_primary_barcode((int) $inventoryItemId, (int) $barcodeId)) {
+            set_alert('success', _l('kt_inventory_record_updated'));
+        } else {
+            set_alert('warning', _l('kt_inventory_invalid_request'));
+        }
+
+        redirect(admin_url('kt_inventory/items/' . (int) $inventoryItemId . '#barcodes'));
+    }
+
+    public function generate_item_barcode($inventoryItemId)
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+        $result = $this->kt_inventory_model->generate_internal_barcode((int) $inventoryItemId);
+        $this->flashResult($result, 'kt_inventory_barcode_saved');
+        redirect(admin_url('kt_inventory/items/' . (int) $inventoryItemId . '#barcodes'));
+    }
+
+    public function ajax_find_item_by_barcode()
+    {
+        $barcode = trim((string) $this->input->post('barcode'));
+        $documentType = trim((string) $this->input->post('document_type'));
+        $this->requireScanPermission($documentType);
+
+        if ($barcode === '') {
+            $this->jsonResponse([
+                'success' => false,
+                'message' => _l('kt_inventory_barcode_required'),
+            ], 422);
+        }
+
+        $match = $this->kt_inventory_model->find_item_by_barcode($barcode);
+        if (!$match) {
+            $this->jsonResponse([
+                'success' => false,
+                'message' => _l('kt_inventory_barcode_not_found'),
+            ], 404);
+        }
+
+        $this->jsonResponse([
+            'success'           => true,
+            'inventory_item_id' => (int) $match['inventory_item_id'],
+            'item_name'         => $match['item_name'],
+            'sku'               => $match['sku'],
+            'primary_unit'      => $match['primary_unit'],
+            'barcode_id'        => (int) $match['id'],
+            'barcode'           => $match['barcode'],
+            'barcode_type'      => $match['barcode_type'],
+            'unit_type'         => $match['unit_type'],
+            'package_quantity'  => (float) $match['package_quantity'],
+            'batch_required'    => !empty($match['batch_required']),
+            'lot_number'        => $match['lot_number'] ?? null,
+            'expiry_date'       => $match['expiry_date'] ?? null,
+            'serial_number'     => $match['serial_number'] ?? null,
+            'batch_id'          => $match['batch_id'] ?? null,
+            'message'           => _l('kt_inventory_barcode_found'),
+        ]);
+    }
+
+    public function deactivate_item($id)
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+        $this->kt_inventory_model->deactivate_inventory_item((int) $id);
+        set_alert('success', _l('kt_inventory_record_inactivated'));
+        redirect(admin_url('kt_inventory/items'));
+    }
+
+    public function delete_item($id)
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+
+        $result = $this->kt_inventory_model->delete_inventory_item_with_clear((int) $id, true);
+        if (!empty($result['success'])) {
+            set_alert('success', _l('kt_inventory_item_deleted_with_clear'));
+        } else {
+            set_alert('warning', $result['message'] ?? _l('kt_inventory_invalid_request'));
+        }
+
+        redirect(admin_url('kt_inventory/items'));
+    }
+
+    public function stock_balance()
+    {
+        $this->requireCapability('kt_inventory_view');
+
+        $filters = $this->input->get();
+        $data['title'] = _l('kt_inventory_stock_balance');
+        $data['balances'] = $this->kt_inventory_model->get_stock_balances($filters);
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses(['is_active' => 1]);
+        $data['inventory_items'] = $this->kt_inventory_model->get_inventory_items(['is_active' => 1]);
+        $data['filters'] = $filters;
+        $this->render(KT_INVENTORY_MODULE . '/stock_balance', $data);
+    }
+
+    public function export_stock_balance_csv()
+    {
+        $this->requireCapability('kt_inventory_view');
+        $rows = $this->kt_inventory_model->get_stock_balances($this->input->get());
+        $this->streamCsv('stock_balances.csv', [
+            'Warehouse',
+            'Warehouse Code',
+            'SKU',
+            'Item',
+            'Barcode',
+            'Unit',
+            'Quantity',
+            'Reserved',
+            'Available',
+            'Min Stock',
+            'Max Stock',
+        ], array_map(function ($row) {
+            return [
+                $row['warehouse_name'],
+                $row['warehouse_code'],
+                $row['sku'],
+                $row['name'],
+                $row['primary_barcode'] ?? '',
+                $row['unit'],
+                $row['quantity'],
+                $row['reserved_quantity'],
+                $row['available_quantity'],
+                $row['min_stock'],
+                $row['max_stock'],
+            ];
+        }, $rows));
+    }
+
+    public function export_stock_balance_excel()
+    {
+        $this->requireCapability('kt_inventory_view');
+        $rows = $this->kt_inventory_model->get_stock_balances($this->input->get());
+        $this->streamExcelXml('stock_balances.xls', 'Stock Balances', [
+            'Warehouse',
+            'Warehouse Code',
+            'SKU',
+            'Item',
+            'Barcode',
+            'Unit',
+            'Quantity',
+            'Reserved',
+            'Available',
+            'Min Stock',
+            'Max Stock',
+        ], array_map(function ($row) {
+            return [
+                $row['warehouse_name'],
+                $row['warehouse_code'],
+                $row['sku'],
+                $row['name'],
+                $row['primary_barcode'] ?? '',
+                $row['unit'],
+                $row['quantity'],
+                $row['reserved_quantity'],
+                $row['available_quantity'],
+                $row['min_stock'],
+                $row['max_stock'],
+            ];
+        }, $rows));
+    }
+
+    public function goods_receipts()
+    {
+        $this->requireCapability('kt_inventory_goods_receipt');
+
+        $data['title'] = _l('kt_inventory_goods_receipts');
+        $data['receipts'] = $this->kt_inventory_model->get_goods_receipts();
+        $this->render(KT_INVENTORY_MODULE . '/receipts', $data);
+    }
+
+    public function receipt($id = null)
+    {
+        $this->requireCapability('kt_inventory_goods_receipt');
+
+        if ($this->input->post()) {
+            $result = $this->kt_inventory_model->save_goods_receipt($this->input->post(), $this->extractLines(), $id ?: null);
+            $this->flashResult($result, 'kt_inventory_receipt_created');
+            redirect(admin_url('kt_inventory/goods_receipts'));
+        }
+
+        $data['title'] = $id ? _l('kt_inventory_edit') . ' ' . _l('kt_inventory_receipt') : _l('kt_inventory_create_receipt');
+        $data['document'] = $id ? $this->kt_inventory_model->get_goods_receipt($id) : null;
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses(['is_active' => 1]);
+        $data['inventory_items'] = $this->kt_inventory_model->get_inventory_items(['is_active' => 1]);
+        $data['document_type'] = 'receipt';
+        $data['barcode_ajax_url'] = admin_url('kt_inventory/ajax_find_item_by_barcode');
+        $this->render(KT_INVENTORY_MODULE . '/receipt_form', $data);
+    }
+
+    public function post_receipt($id)
+    {
+        $this->requireCapability('kt_inventory_goods_receipt');
+        $result = $this->kt_inventory_model->post_goods_receipt((int) $id);
+        $this->handlePostingResult($result);
+        redirect(admin_url('kt_inventory/goods_receipts'));
+    }
+
+    public function cancel_receipt($id)
+    {
+        $this->requireCapability('kt_inventory_goods_receipt');
+        $this->handleCancelResult($this->kt_inventory_model->cancel_goods_receipt((int) $id));
+        redirect(admin_url('kt_inventory/goods_receipts'));
+    }
+
+    public function goods_issues()
+    {
+        $this->requireCapability('kt_inventory_goods_issue');
+
+        $data['title'] = _l('kt_inventory_goods_issues');
+        $data['issues'] = $this->kt_inventory_model->get_goods_issues();
+        $this->render(KT_INVENTORY_MODULE . '/issues', $data);
+    }
+
+    public function issue($id = null)
+    {
+        $this->requireCapability('kt_inventory_goods_issue');
+
+        if ($this->input->post()) {
+            $result = $this->kt_inventory_model->save_goods_issue($this->input->post(), $this->extractLines(), $id ?: null);
+            $this->flashResult($result, 'kt_inventory_issue_created');
+            redirect(admin_url('kt_inventory/goods_issues'));
+        }
+
+        $data['title'] = $id ? _l('kt_inventory_edit') . ' ' . _l('kt_inventory_issue') : _l('kt_inventory_create_issue');
+        $data['document'] = $id ? $this->kt_inventory_model->get_goods_issue($id) : null;
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses(['is_active' => 1]);
+        $data['inventory_items'] = $this->kt_inventory_model->get_inventory_items(['is_active' => 1]);
+        $data['customers'] = $this->kt_inventory_model->get_customers();
+        $data['invoices'] = $this->kt_inventory_model->get_invoices();
+        $data['document_type'] = 'issue';
+        $data['barcode_ajax_url'] = admin_url('kt_inventory/ajax_find_item_by_barcode');
+        $this->render(KT_INVENTORY_MODULE . '/issue_form', $data);
+    }
+
+    public function post_issue($id)
+    {
+        $this->requireCapability('kt_inventory_goods_issue');
+        $result = $this->kt_inventory_model->post_goods_issue((int) $id);
+        $this->handlePostingResult($result);
+        redirect(admin_url('kt_inventory/goods_issues'));
+    }
+
+    public function cancel_issue($id)
+    {
+        $this->requireCapability('kt_inventory_goods_issue');
+        $this->handleCancelResult($this->kt_inventory_model->cancel_goods_issue((int) $id));
+        redirect(admin_url('kt_inventory/goods_issues'));
+    }
+
+    public function reservations()
+    {
+        $this->requireCapability('kt_inventory_goods_issue');
+
+        if ($this->input->post()) {
+            $result = $this->kt_inventory_model->reserve_stock($this->input->post());
+            $this->flashResult($result, 'kt_inventory_reservation_created');
+            redirect(admin_url('kt_inventory/reservations'));
+        }
+
+        $data['title'] = _l('kt_inventory_reservations');
+        $data['reservations'] = $this->kt_inventory_model->get_reservations($this->input->get());
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses(['is_active' => 1]);
+        $data['inventory_items'] = $this->kt_inventory_model->get_inventory_items(['is_active' => 1]);
+        $data['customers'] = $this->kt_inventory_model->get_customers();
+        $data['invoices'] = $this->kt_inventory_model->get_invoices();
+        $data['filters'] = $this->input->get();
+        $this->render(KT_INVENTORY_MODULE . '/reservations', $data);
+    }
+
+    public function release_reservation($id)
+    {
+        $this->requireCapability('kt_inventory_goods_issue');
+        if ($this->kt_inventory_model->release_reservation((int) $id)) {
+            set_alert('success', _l('kt_inventory_reservation_released'));
+        } else {
+            set_alert('warning', _l('kt_inventory_invalid_request'));
+        }
+        redirect(admin_url('kt_inventory/reservations'));
+    }
+
+    public function stock_adjustments()
+    {
+        $this->requireCapability('kt_inventory_adjustment');
+
+        $data['title'] = _l('kt_inventory_stock_adjustments');
+        $data['adjustments'] = $this->kt_inventory_model->get_stock_adjustments();
+        $this->render(KT_INVENTORY_MODULE . '/adjustments', $data);
+    }
+
+    public function adjustment($id = null)
+    {
+        $this->requireCapability('kt_inventory_adjustment');
+
+        if ($this->input->post()) {
+            $result = $this->kt_inventory_model->save_stock_adjustment($this->input->post(), $this->extractLines(), $id ?: null);
+            $this->flashResult($result, 'kt_inventory_adjustment_created');
+            redirect(admin_url('kt_inventory/stock_adjustments'));
+        }
+
+        $data['title'] = $id ? _l('kt_inventory_edit') . ' ' . _l('kt_inventory_adjustment') : _l('kt_inventory_create_adjustment');
+        $data['document'] = $id ? $this->kt_inventory_model->get_stock_adjustment($id) : null;
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses(['is_active' => 1]);
+        $data['inventory_items'] = $this->kt_inventory_model->get_inventory_items(['is_active' => 1]);
+        $data['document_type'] = 'adjustment';
+        $data['barcode_ajax_url'] = admin_url('kt_inventory/ajax_find_item_by_barcode');
+        $this->render(KT_INVENTORY_MODULE . '/adjustment_form', $data);
+    }
+
+    public function post_adjustment($id)
+    {
+        $this->requireCapability('kt_inventory_adjustment');
+        $result = $this->kt_inventory_model->post_stock_adjustment((int) $id);
+        $this->handlePostingResult($result);
+        redirect(admin_url('kt_inventory/stock_adjustments'));
+    }
+
+    public function cancel_adjustment($id)
+    {
+        $this->requireCapability('kt_inventory_adjustment');
+        $this->handleCancelResult($this->kt_inventory_model->cancel_stock_adjustment((int) $id));
+        redirect(admin_url('kt_inventory/stock_adjustments'));
+    }
+
+    public function stock_transfers()
+    {
+        $this->requireCapability('kt_inventory_transfer');
+
+        $data['title'] = _l('kt_inventory_stock_transfers');
+        $data['transfers'] = $this->kt_inventory_model->get_stock_transfers();
+        $this->render(KT_INVENTORY_MODULE . '/transfers', $data);
+    }
+
+    public function transfer($id = null)
+    {
+        $this->requireCapability('kt_inventory_transfer');
+
+        if ($this->input->post()) {
+            $result = $this->kt_inventory_model->save_stock_transfer($this->input->post(), $this->extractLines(), $id ?: null);
+            $this->flashResult($result, 'kt_inventory_transfer_created');
+            redirect(admin_url('kt_inventory/stock_transfers'));
+        }
+
+        $data['title'] = $id ? _l('kt_inventory_edit') . ' ' . _l('kt_inventory_transfer') : _l('kt_inventory_create_transfer');
+        $data['document'] = $id ? $this->kt_inventory_model->get_stock_transfer($id) : null;
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses(['is_active' => 1]);
+        $data['inventory_items'] = $this->kt_inventory_model->get_inventory_items(['is_active' => 1]);
+        $data['document_type'] = 'transfer';
+        $data['barcode_ajax_url'] = admin_url('kt_inventory/ajax_find_item_by_barcode');
+        $this->render(KT_INVENTORY_MODULE . '/transfer_form', $data);
+    }
+
+    public function post_transfer($id)
+    {
+        $this->requireCapability('kt_inventory_transfer');
+        $result = $this->kt_inventory_model->post_stock_transfer((int) $id);
+        $this->handlePostingResult($result);
+        redirect(admin_url('kt_inventory/stock_transfers'));
+    }
+
+    public function cancel_transfer($id)
+    {
+        $this->requireCapability('kt_inventory_transfer');
+        $this->handleCancelResult($this->kt_inventory_model->cancel_stock_transfer((int) $id));
+        redirect(admin_url('kt_inventory/stock_transfers'));
+    }
+
+    public function transactions()
+    {
+        $this->requireCapability('kt_inventory_view');
+
+        $filters = $this->input->get();
+        $data['title'] = _l('kt_inventory_transactions');
+        $data['transactions'] = $this->kt_inventory_model->get_transactions($filters);
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses(['is_active' => 1]);
+        $data['inventory_items'] = $this->kt_inventory_model->get_inventory_items(['is_active' => 1]);
+        $data['transaction_types'] = kt_inventory_transaction_types();
+        $data['filters'] = $filters;
+        $this->render(KT_INVENTORY_MODULE . '/transactions', $data);
+    }
+
+    public function export_transactions_csv()
+    {
+        $this->requireCapability('kt_inventory_view');
+        $rows = $this->kt_inventory_model->get_transactions($this->input->get());
+        $types = kt_inventory_transaction_types();
+
+        $this->streamCsv('stock_transactions.csv', [
+            'Ngày',
+            'Type',
+            'Warehouse',
+            'SKU',
+            'Item',
+            'Before',
+            'Change',
+            'After',
+            'Reference Type',
+            'Reference ID',
+            'Created By',
+            'Note',
+        ], array_map(function ($row) use ($types) {
+            return [
+                $row['created_at'],
+                $types[$row['transaction_type']] ?? $row['transaction_type'],
+                $row['warehouse_name'],
+                $row['sku'],
+                $row['item_name'],
+                $row['quantity_before'],
+                $row['quantity_change'],
+                $row['quantity_after'],
+                $row['reference_type'],
+                $row['reference_id'],
+                $row['created_by_name'],
+                $row['note'],
+            ];
+        }, $rows));
+    }
+
+    public function export_transactions_excel()
+    {
+        $this->requireCapability('kt_inventory_view');
+        $rows = $this->kt_inventory_model->get_transactions($this->input->get());
+        $types = kt_inventory_transaction_types();
+
+        $this->streamExcelXml('stock_transactions.xls', 'Transactions', [
+            'Ngày',
+            'Type',
+            'Warehouse',
+            'SKU',
+            'Item',
+            'Before',
+            'Change',
+            'After',
+            'Reference Type',
+            'Reference ID',
+            'Created By',
+            'Note',
+        ], array_map(function ($row) use ($types) {
+            return [
+                $row['created_at'],
+                $types[$row['transaction_type']] ?? $row['transaction_type'],
+                $row['warehouse_name'],
+                $row['sku'],
+                $row['item_name'],
+                $row['quantity_before'],
+                $row['quantity_change'],
+                $row['quantity_after'],
+                $row['reference_type'],
+                $row['reference_id'],
+                $row['created_by_name'],
+                $row['note'],
+            ];
+        }, $rows));
+    }
+
+    public function reports()
+    {
+        $this->requireCapability('kt_inventory_reports');
+
+        $filters = $this->input->get();
+        $data['title'] = _l('kt_inventory_reports');
+        $data['balances'] = $this->kt_inventory_model->get_stock_balances($filters);
+        $data['low_stock_rows'] = $this->kt_inventory_model->get_low_stock_balances();
+        $data['movement_rows'] = $this->kt_inventory_model->get_movement_report($filters);
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses(['is_active' => 1]);
+        
+        // Phase 3 Pharmaceutical reporting
+        $data['expiry_alerts'] = $this->kt_inventory_model->get_expiry_alerts($filters);
+        $recall_lot = trim((string)($filters['recall_lot'] ?? ''));
+        $data['recall_data'] = $recall_lot !== '' ? $this->kt_inventory_model->get_recall_trace($recall_lot) : null;
+        
+        $data['filters'] = $filters;
+        $this->render(KT_INVENTORY_MODULE . '/reports', $data);
+    }
+
+    public function settings()
+    {
+        $this->requireCapability('kt_inventory_settings');
+
+        if ($this->input->post()) {
+            $this->kt_inventory_model->save_settings($this->input->post());
+            set_alert('success', _l('kt_inventory_settings_saved'));
+            redirect(admin_url('kt_inventory/settings'));
+        }
+
+        $data['title'] = _l('kt_inventory_settings');
+        $data['warehouses'] = $this->kt_inventory_model->get_warehouses(['is_active' => 1]);
+        $data['barcode_types'] = kt_inventory_barcode_types();
+        $this->render(KT_INVENTORY_MODULE . '/settings', $data);
+    }
+
+    public function import_items_csv()
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+
+        $result = $this->handleCsvUpload('items_csv');
+        if (empty($result['success'])) {
+            set_alert('warning', $result['message']);
+            redirect(admin_url('kt_inventory/settings'));
+        }
+
+        $import = $this->kt_inventory_model->import_items_from_csv($result['rows']);
+        set_alert($import['success'] ? 'success' : 'warning', $import['message']);
+        redirect(admin_url('kt_inventory/settings'));
+    }
+
+    public function import_stock_balances_csv()
+    {
+        $this->requireCapability('kt_inventory_settings');
+
+        $result = $this->handleCsvUpload('balances_csv');
+        if (empty($result['success'])) {
+            set_alert('warning', $result['message']);
+            redirect(admin_url('kt_inventory/settings'));
+        }
+
+        $import = $this->kt_inventory_model->import_stock_balances_from_csv($result['rows']);
+        set_alert($import['success'] ? 'success' : 'warning', $import['message']);
+        redirect(admin_url('kt_inventory/settings'));
+    }
+
+    public function download_items_csv_template()
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+        $this->streamCsv('kt_inventory_items_template.csv', [
+            'item_id',
+            'sku',
+            'name',
+            'unit',
+            'barcode',
+            'barcode_type',
+            'unit_type',
+            'package_quantity',
+            'is_primary',
+            'source',
+            'track_lot',
+            'track_serial',
+            'min_stock',
+            'max_stock',
+            'is_active',
+        ], []);
+    }
+
+    public function download_stock_balances_csv_template()
+    {
+        $this->requireCapability('kt_inventory_settings');
+        $this->streamCsv('kt_inventory_stock_balances_template.csv', [
+            'warehouse_code',
+            'sku',
+            'quantity',
+            'reserved_quantity',
+        ], []);
+    }
+
+    public function export_items_csv()
+    {
+        $this->requireCapability('kt_inventory_view');
+        $rows = $this->kt_inventory_model->get_inventory_items();
+        $this->streamCsv('kt_inventory_items_export.csv', [
+            'sku',
+            'name',
+            'unit',
+            'primary_barcode',
+            'primary_barcode_type',
+            'primary_unit_type',
+            'primary_package_quantity',
+            'track_lot',
+            'track_serial',
+            'min_stock',
+            'max_stock',
+            'is_active',
+        ], array_map(function ($row) {
+            return [
+                $row['sku'],
+                $row['name'],
+                $row['unit'],
+                $row['primary_barcode'] ?? '',
+                $row['primary_barcode_type'] ?? '',
+                $row['primary_barcode_unit_type'] ?? '',
+                $row['primary_package_quantity'] ?? '',
+                $row['track_lot'],
+                $row['track_serial'],
+                $row['min_stock'],
+                $row['max_stock'],
+                $row['is_active'],
+            ];
+        }, $rows));
+    }
+
+    public function export_item_barcodes_csv()
+    {
+        $this->requireCapability('kt_inventory_view');
+        $items = $this->kt_inventory_model->get_inventory_items();
+        $rows = [];
+        foreach ($items as $item) {
+            foreach ($this->kt_inventory_model->get_item_barcodes((int) $item['id']) as $barcode) {
+                $rows[] = [
+                    $item['sku'],
+                    $item['name'],
+                    $barcode['barcode'],
+                    $barcode['barcode_type'],
+                    $barcode['unit_type'],
+                    $barcode['package_quantity'],
+                    $barcode['is_primary'],
+                    $barcode['source'],
+                    $barcode['is_active'],
+                ];
+            }
+        }
+
+        $this->streamCsv('kt_inventory_item_barcodes_export.csv', [
+            'sku',
+            'item_name',
+            'barcode',
+            'barcode_type',
+            'unit_type',
+            'package_quantity',
+            'is_primary',
+            'source',
+            'is_active',
+        ], $rows);
+    }
+
+    public function api_stock_balances()
+    {
+        $this->requireCapability('kt_inventory_view');
+        $this->jsonResponse([
+            'success' => true,
+            'data'    => $this->kt_inventory_model->get_stock_balances($this->input->get()),
+        ]);
+    }
+
+    public function api_transactions()
+    {
+        $this->requireCapability('kt_inventory_view');
+        $this->jsonResponse([
+            'success' => true,
+            'data'    => $this->kt_inventory_model->get_transactions($this->input->get()),
+        ]);
+    }
+
+    public function migrate_legacy_data()
+    {
+        $this->requireCapability('kt_inventory_settings');
+
+        if (!is_admin()) {
+            access_denied(KT_INVENTORY_MODULE);
+        }
+
+        $result = $this->kt_inventory_model->migrate_from_legacy_warehouse();
+        set_alert(
+            'success',
+            _l(
+                'kt_inventory_legacy_migration_done',
+                $result['warehouses'] . '/' . $result['items'] . '/' . $result['balances']
+            )
+        );
+
+        redirect(admin_url('kt_inventory/settings'));
+    }
+
+    private function requireCapability($capability)
+    {
+        if (!kt_inventory_staff_can($capability)) {
+            access_denied(KT_INVENTORY_MODULE);
+        }
+    }
+
+    private function requireScanPermission($documentType)
+    {
+        $map = [
+            'receipt'    => 'kt_inventory_goods_receipt',
+            'issue'      => 'kt_inventory_goods_issue',
+            'adjustment' => 'kt_inventory_adjustment',
+            'transfer'   => 'kt_inventory_transfer',
+        ];
+
+        if (!isset($map[$documentType])) {
+            $this->requireCapability('kt_inventory_view');
+            return;
+        }
+
+        $this->requireCapability($map[$documentType]);
+    }
+
+    private function render($view, $data = [])
+    {
+        $this->load->view($view, $data);
+    }
+
+    private function flashResult($result, $successMessageKey)
+    {
+        if (!empty($result['success'])) {
+            set_alert('success', _l($successMessageKey));
+            return;
+        }
+
+        set_alert('warning', $result['message'] ?? _l('kt_inventory_invalid_request'));
+    }
+
+    private function handlePostingResult($result)
+    {
+        if ($result === true) {
+            set_alert('success', _l('kt_inventory_post_success'));
+            return;
+        }
+
+        if (is_array($result) && ($result['error'] ?? '') === 'negative_stock') {
+            set_alert('warning', _l('kt_inventory_negative_stock_not_allowed'));
+            return;
+        }
+
+        if (is_array($result) && ($result['error'] ?? '') === 'same_warehouse') {
+            set_alert('warning', _l('kt_inventory_same_warehouse_error'));
+            return;
+        }
+        if (is_array($result) && ($result['error'] ?? '') === 'reserved_conflict') {
+            set_alert('warning', _l('kt_inventory_reserved_conflict'));
+            return;
+        }
+
+        set_alert('warning', _l('kt_inventory_posting_error'));
+    }
+
+    private function handleCancelResult($result)
+    {
+        if ($result) {
+            set_alert('success', _l('kt_inventory_cancel_success'));
+            return;
+        }
+
+        set_alert('warning', _l('kt_inventory_invalid_request'));
+    }
+
+    private function extractLines()
+    {
+        return $this->input->post('lines') ?: [];
+    }
+
+    private function streamCsv($filename, $headers, $rows)
+    {
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+
+        $output = fopen('php://output', 'w');
+        fputcsv($output, $headers);
+        foreach ($rows as $row) {
+            fputcsv($output, $row);
+        }
+        fclose($output);
+        exit;
+    }
+
+    private function handleCsvUpload($fieldName)
+    {
+        if (empty($_FILES[$fieldName]['tmp_name']) || empty($_FILES[$fieldName]['name'])) {
+            return ['success' => false, 'message' => _l('kt_inventory_import_file_required')];
+        }
+
+        $extension = strtolower(pathinfo($_FILES[$fieldName]['name'], PATHINFO_EXTENSION));
+        if ($extension !== 'csv') {
+            return ['success' => false, 'message' => _l('kt_inventory_import_csv_only')];
+        }
+
+        $handle = fopen($_FILES[$fieldName]['tmp_name'], 'r');
+        if (!$handle) {
+            return ['success' => false, 'message' => _l('kt_inventory_import_read_failed')];
+        }
+
+        $headers = fgetcsv($handle);
+        if (!$headers) {
+            fclose($handle);
+            return ['success' => false, 'message' => _l('kt_inventory_import_empty_file')];
+        }
+
+        $headers = array_map([$this, 'normalizeCsvHeader'], $headers);
+        $rows = [];
+        while (($row = fgetcsv($handle)) !== false) {
+            if ($this->csvRowIsEmpty($row)) {
+                continue;
+            }
+
+            $assoc = [];
+            foreach ($headers as $index => $header) {
+                $assoc[$header] = isset($row[$index]) ? trim((string) $row[$index]) : '';
+            }
+            $rows[] = $assoc;
+        }
+
+        fclose($handle);
+        return ['success' => true, 'rows' => $rows];
+    }
+
+    private function normalizeCsvHeader($header)
+    {
+        return strtolower(trim((string) $header));
+    }
+
+    private function csvRowIsEmpty($row)
+    {
+        foreach ($row as $value) {
+            if (trim((string) $value) !== '') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function requirePost()
+    {
+        if (strtoupper($this->input->method()) !== 'POST') {
+            show_error('Method Not Allowed', 405);
+        }
+    }
+
+    private function normalizeBulkIds($ids)
+    {
+        if (!is_array($ids)) {
+            return [];
+        }
+
+        $normalized = array_values(array_unique(array_filter(array_map('intval', $ids), function ($id) {
+            return $id > 0;
+        })));
+
+        return $normalized;
+    }
+
+    private function setBulkAlert($processed, $failed, $prefix)
+    {
+        if ($processed > 0 && $failed === 0) {
+            set_alert('success', $prefix . ': ' . $processed);
+            return;
+        }
+
+        if ($processed > 0) {
+            set_alert('warning', $prefix . ': thành công ' . $processed . ', thất bại ' . $failed);
+            return;
+        }
+
+        set_alert('warning', _l('kt_inventory_invalid_request'));
+    }
+
+    private function handleBulkDocumentAction($action, $ids, $type, $redirectPath)
+    {
+        if ($action === '' || empty($ids)) {
+            set_alert('warning', _l('kt_inventory_invalid_request'));
+            redirect(admin_url($redirectPath));
+        }
+
+        $getMap = [
+            'receipt'    => 'get_goods_receipt',
+            'issue'      => 'get_goods_issue',
+            'adjustment' => 'get_stock_adjustment',
+            'transfer'   => 'get_stock_transfer',
+        ];
+        $postMap = [
+            'receipt'    => 'post_goods_receipt',
+            'issue'      => 'post_goods_issue',
+            'adjustment' => 'post_stock_adjustment',
+            'transfer'   => 'post_stock_transfer',
+        ];
+        $cancelMap = [
+            'receipt'    => 'cancel_goods_receipt',
+            'issue'      => 'cancel_goods_issue',
+            'adjustment' => 'cancel_stock_adjustment',
+            'transfer'   => 'cancel_stock_transfer',
+        ];
+
+        if (!isset($getMap[$type], $postMap[$type], $cancelMap[$type]) || !in_array($action, ['post', 'cancel'], true)) {
+            set_alert('warning', _l('kt_inventory_invalid_request'));
+            redirect(admin_url($redirectPath));
+        }
+
+        $processed = 0;
+        $failed = 0;
+        foreach ($ids as $id) {
+            $document = $this->kt_inventory_model->{$getMap[$type]}($id);
+            if (!$document) {
+                $failed++;
+                continue;
+            }
+
+            $result = $action === 'post'
+                ? $this->kt_inventory_model->{$postMap[$type]}($id)
+                : $this->kt_inventory_model->{$cancelMap[$type]}($id);
+
+            if ($result === true) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        log_activity('KT Inventory bulk document action [' . $type . ':' . $action . '] processed=' . $processed . ' failed=' . $failed);
+        $this->setBulkAlert($processed, $failed, 'Đã xử lý chứng từ');
+        redirect(admin_url($redirectPath));
+    }
+
+    private function streamExcelXml($filename, $sheetName, $headers, $rows)
+    {
+        header('Content-Type: application/vnd.ms-excel; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>';
+        $xml .= '<?mso-application progid="Excel.Sheet"?>';
+        $xml .= '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"';
+        $xml .= ' xmlns:o="urn:schemas-microsoft-com:office:office"';
+        $xml .= ' xmlns:x="urn:schemas-microsoft-com:office:excel"';
+        $xml .= ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
+        $xml .= '<Worksheet ss:Name="' . html_escape($sheetName) . '"><Table>';
+        $xml .= '<Row>';
+        foreach ($headers as $headerCell) {
+            $xml .= '<Cell><Data ss:Type="String">' . $this->xmlCell($headerCell) . '</Data></Cell>';
+        }
+        $xml .= '</Row>';
+        foreach ($rows as $row) {
+            $xml .= '<Row>';
+            foreach ($row as $cell) {
+                $type = is_numeric($cell) ? 'Number' : 'String';
+                $xml .= '<Cell><Data ss:Type="' . $type . '">' . $this->xmlCell($cell) . '</Data></Cell>';
+            }
+            $xml .= '</Row>';
+        }
+        $xml .= '</Table></Worksheet></Workbook>';
+
+        echo $xml;
+        exit;
+    }
+
+    private function xmlCell($value)
+    {
+        return htmlspecialchars((string) $value, ENT_XML1 | ENT_COMPAT, 'UTF-8');
+    }
+
+    public function batches($id = null)
+    {
+        $this->requireCapability('kt_inventory_view');
+
+        if ($this->input->post()) {
+            $this->requireCapability('kt_inventory_manage_items');
+            $result = $this->kt_inventory_model->save_batch($this->input->post(), $id);
+            if ($result) {
+                set_alert('success', _l('kt_inventory_record_updated'));
+            } else {
+                set_alert('warning', _l('kt_inventory_invalid_request'));
+            }
+            redirect(admin_url('kt_inventory/batches'));
+        }
+
+        $data['title'] = _l('kt_inventory_batches');
+        $data['batches'] = $this->kt_inventory_model->get_batches($this->input->get());
+        $data['edit_batch'] = $id ? $this->kt_inventory_model->get_batch($id) : null;
+        $data['qc_statuses'] = [
+            'quarantine' => _l('kt_inventory_qc_quarantine'),
+            'released'   => _l('kt_inventory_qc_released'),
+            'blocked'    => _l('kt_inventory_qc_blocked'),
+        ];
+        $this->render(KT_INVENTORY_MODULE . '/batches', $data);
+    }
+
+    public function ajax_get_batches_by_item($itemId)
+    {
+        $this->requireCapability('kt_inventory_view');
+        $warehouseId = $this->input->get('warehouse_id');
+        $batches = $this->kt_inventory_model->get_batches_by_item((int) $itemId, $warehouseId ? (int) $warehouseId : null);
+        
+        $this->jsonResponse([
+            'success' => true,
+            'batches' => $batches
+        ]);
+    }
+
+    public function bulk_items()
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+        $this->requirePost();
+
+        $action = trim((string) $this->input->post('bulk_action'));
+        $ids = $this->normalizeBulkIds($this->input->post('ids'));
+        if ($action === '' || empty($ids)) {
+            set_alert('warning', _l('kt_inventory_invalid_request'));
+            redirect(admin_url('kt_inventory/items'));
+        }
+
+        if ($action === 'export_csv') {
+            $rows = [];
+            foreach ($this->kt_inventory_model->get_inventory_items() as $item) {
+                if (!in_array((int) $item['id'], $ids, true)) {
+                    continue;
+                }
+                $rows[] = [
+                    $item['sku'],
+                    $item['name'],
+                    $item['unit'],
+                    $item['primary_barcode'] ?? '',
+                    $item['min_stock'],
+                    $item['max_stock'],
+                    !empty($item['is_active']) ? _l('kt_inventory_active') : _l('kt_inventory_inactive'),
+                ];
+            }
+
+            $this->streamCsv('kt_inventory_items_selected.csv', [
+                _l('kt_inventory_sku'),
+                _l('kt_inventory_name'),
+                _l('kt_inventory_unit'),
+                _l('kt_inventory_barcode'),
+                _l('kt_inventory_min_stock'),
+                _l('kt_inventory_max_stock'),
+                _l('kt_inventory_status'),
+            ], $rows);
+        }
+
+        $processed = 0;
+        $failed = 0;
+        foreach ($ids as $id) {
+            $item = $this->kt_inventory_model->get_inventory_item($id);
+            if (!$item) {
+                $failed++;
+                continue;
+            }
+
+            $ok = false;
+            if ($action === 'activate') {
+                $ok = $this->kt_inventory_model->set_inventory_item_active($id, true);
+            } elseif ($action === 'deactivate') {
+                $ok = $this->kt_inventory_model->set_inventory_item_active($id, false);
+            } elseif ($action === 'delete_clear') {
+                $delete = $this->kt_inventory_model->delete_inventory_item_with_clear($id, true);
+                $ok = !empty($delete['success']);
+            }
+
+            if ($ok) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        log_activity('KT Inventory bulk items action [' . $action . '] processed=' . $processed . ' failed=' . $failed);
+        $this->setBulkAlert($processed, $failed, 'Đã xử lý hàng hóa');
+        redirect(admin_url('kt_inventory/items'));
+    }
+
+    public function bulk_warehouses()
+    {
+        $this->requireCapability('kt_inventory_manage_warehouses');
+        $this->requirePost();
+
+        $action = trim((string) $this->input->post('bulk_action'));
+        $ids = $this->normalizeBulkIds($this->input->post('ids'));
+        if ($action === '' || empty($ids)) {
+            set_alert('warning', _l('kt_inventory_invalid_request'));
+            redirect(admin_url('kt_inventory/warehouses'));
+        }
+
+        $managerStaffId = (int) $this->input->post('manager_staff_id');
+        $processed = 0;
+        $failed = 0;
+        foreach ($ids as $id) {
+            $warehouse = $this->kt_inventory_model->get_warehouse($id);
+            if (!$warehouse) {
+                $failed++;
+                continue;
+            }
+
+            $ok = false;
+            if ($action === 'activate') {
+                $ok = $this->kt_inventory_model->set_warehouse_active($id, true);
+            } elseif ($action === 'deactivate') {
+                $ok = $this->kt_inventory_model->set_warehouse_active($id, false);
+            } elseif ($action === 'assign_manager') {
+                $ok = $this->kt_inventory_model->assign_warehouse_manager($id, $managerStaffId);
+            } elseif ($action === 'delete') {
+                $ok = $this->kt_inventory_model->delete_warehouse($id);
+            }
+
+            if ($ok) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        log_activity('KT Inventory bulk warehouses action [' . $action . '] processed=' . $processed . ' failed=' . $failed);
+        $this->setBulkAlert($processed, $failed, 'Đã xử lý kho');
+        redirect(admin_url('kt_inventory/warehouses'));
+    }
+
+    public function bulk_batches()
+    {
+        $this->requireCapability('kt_inventory_manage_items');
+        $this->requirePost();
+
+        $action = trim((string) $this->input->post('bulk_action'));
+        $ids = $this->normalizeBulkIds($this->input->post('ids'));
+        if ($action === '' || empty($ids)) {
+            set_alert('warning', _l('kt_inventory_invalid_request'));
+            redirect(admin_url('kt_inventory/batches'));
+        }
+
+        $statusMap = [
+            'mark_released'    => 'released',
+            'mark_quarantine'  => 'quarantine',
+            'mark_blocked'     => 'blocked',
+        ];
+        if (!isset($statusMap[$action])) {
+            set_alert('warning', _l('kt_inventory_invalid_request'));
+            redirect(admin_url('kt_inventory/batches'));
+        }
+
+        $processed = 0;
+        $failed = 0;
+        foreach ($ids as $id) {
+            $batch = $this->kt_inventory_model->get_batch($id);
+            if (!$batch) {
+                $failed++;
+                continue;
+            }
+
+            if ($this->kt_inventory_model->set_batch_qc_status($id, $statusMap[$action])) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        log_activity('KT Inventory bulk batches action [' . $action . '] processed=' . $processed . ' failed=' . $failed);
+        $this->setBulkAlert($processed, $failed, 'Đã cập nhật lô hàng');
+        redirect(admin_url('kt_inventory/batches'));
+    }
+
+    public function bulk_receipts()
+    {
+        $this->requireCapability('kt_inventory_goods_receipt');
+        $this->requirePost();
+        $this->handleBulkDocumentAction(
+            trim((string) $this->input->post('bulk_action')),
+            $this->normalizeBulkIds($this->input->post('ids')),
+            'receipt',
+            'kt_inventory/goods_receipts'
+        );
+    }
+
+    public function bulk_issues()
+    {
+        $this->requireCapability('kt_inventory_goods_issue');
+        $this->requirePost();
+        $this->handleBulkDocumentAction(
+            trim((string) $this->input->post('bulk_action')),
+            $this->normalizeBulkIds($this->input->post('ids')),
+            'issue',
+            'kt_inventory/goods_issues'
+        );
+    }
+
+    public function bulk_adjustments()
+    {
+        $this->requireCapability('kt_inventory_adjustment');
+        $this->requirePost();
+        $this->handleBulkDocumentAction(
+            trim((string) $this->input->post('bulk_action')),
+            $this->normalizeBulkIds($this->input->post('ids')),
+            'adjustment',
+            'kt_inventory/stock_adjustments'
+        );
+    }
+
+    public function bulk_transfers()
+    {
+        $this->requireCapability('kt_inventory_transfer');
+        $this->requirePost();
+        $this->handleBulkDocumentAction(
+            trim((string) $this->input->post('bulk_action')),
+            $this->normalizeBulkIds($this->input->post('ids')),
+            'transfer',
+            'kt_inventory/stock_transfers'
+        );
+    }
+
+    private function jsonResponse($payload, $statusCode = 200)
+    {
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($json === false) {
+            $json = json_encode([
+                'success' => false,
+                'message' => 'JSON encoding error: ' . json_last_error_msg(),
+            ]);
+            $statusCode = 500;
+        }
+        $this->output->set_status_header($statusCode);
+        header('Content-Type: application/json; charset=utf-8');
+        echo $json;
+        exit;
+    }
+}

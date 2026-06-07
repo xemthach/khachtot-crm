@@ -1,0 +1,3345 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+class Kt_saas_model extends App_Model
+{
+    public function get_tenant_workspace_form_options()
+    {
+        $languages = [];
+        if (isset($this->app) && method_exists($this->app, 'get_available_languages')) {
+            $languages = (array) $this->app->get_available_languages();
+        }
+
+        if (empty($languages)) {
+            $languages = ['english'];
+        }
+
+        return [
+            'languages'           => array_values(array_unique(array_filter(array_map('strval', $languages)))),
+            'timezones'           => $this->workspace_timezone_options(),
+            'date_formats'        => $this->workspace_date_format_options(),
+            'number_formats'      => $this->workspace_number_format_options(),
+            'prefix_suggestions'  => [
+                'invoice'     => 'INV-',
+                'estimate'    => 'EST-',
+                'credit_note' => 'CN-',
+            ],
+        ];
+    }
+
+    public function get_tenant_workspace_settings($tenantId)
+    {
+        $tenant = kt_saas_current_tenant();
+        if ((int) ($tenant['id'] ?? 0) !== (int) $tenantId) {
+            $tenant = $this->find_landlord_tenant_row($tenantId);
+        }
+        if (!$tenant) {
+            return [];
+        }
+
+        return [
+            'companyname'          => $this->tenant_option('companyname', (string) ($tenant['company_name'] ?? '')),
+            'company_email'        => $this->tenant_option('company_email', ''),
+            'companyphonenumber'   => $this->tenant_option('companyphonenumber', ''),
+            'company_vat'          => $this->tenant_option('company_vat', ''),
+            'kt_saas_mail_from_name' => $this->tenant_option('kt_saas_mail_from_name', ''),
+            'kt_saas_mail_reply_to_email' => $this->tenant_option('kt_saas_mail_reply_to_email', ''),
+            'bcc_emails'          => $this->tenant_option('bcc_emails', ''),
+            'email_signature'     => $this->tenant_option('email_signature', ''),
+            'email_header'        => $this->tenant_option('email_header', ''),
+            'email_footer'        => $this->tenant_option('email_footer', ''),
+            'invoice_company_name' => $this->tenant_option('invoice_company_name', (string) ($tenant['company_name'] ?? '')),
+            'invoice_company_address' => $this->tenant_option('invoice_company_address', ''),
+            'invoice_company_city' => $this->tenant_option('invoice_company_city', ''),
+            'invoice_company_state' => $this->tenant_option('invoice_company_state', ''),
+            'invoice_company_country_code' => $this->tenant_option('invoice_company_country_code', ''),
+            'invoice_company_postal_code' => $this->tenant_option('invoice_company_postal_code', ''),
+            'invoice_company_phonenumber' => $this->tenant_option('invoice_company_phonenumber', ''),
+            'invoice_due_after'    => $this->tenant_option('invoice_due_after', '30'),
+            'estimate_due_after'   => $this->tenant_option('estimate_due_after', '7'),
+            'invoice_prefix'       => $this->tenant_option('invoice_prefix', 'INV-'),
+            'next_invoice_number'  => $this->tenant_option('next_invoice_number', '1'),
+            'invoice_number_format' => $this->tenant_option('invoice_number_format', '1'),
+            'estimate_prefix'      => $this->tenant_option('estimate_prefix', 'EST-'),
+            'next_estimate_number' => $this->tenant_option('next_estimate_number', '1'),
+            'estimate_number_format' => $this->tenant_option('estimate_number_format', '1'),
+            'credit_note_prefix'   => $this->tenant_option('credit_note_prefix', 'CN-'),
+            'next_credit_note_number' => $this->tenant_option('next_credit_note_number', '1'),
+            'credit_note_number_format' => $this->tenant_option('credit_note_number_format', '1'),
+            'predefined_clientnote_invoice' => $this->tenant_option('predefined_clientnote_invoice', ''),
+            'predefined_terms_invoice' => $this->tenant_option('predefined_terms_invoice', ''),
+            'view_invoice_only_logged_in' => $this->tenant_option('view_invoice_only_logged_in', '0'),
+            'exclude_invoice_from_client_area_with_draft_status' => $this->tenant_option('exclude_invoice_from_client_area_with_draft_status', '1'),
+            'show_sale_agent_on_invoices' => $this->tenant_option('show_sale_agent_on_invoices', '1'),
+            'show_project_on_invoice' => $this->tenant_option('show_project_on_invoice', '1'),
+            'show_total_paid_on_invoice' => $this->tenant_option('show_total_paid_on_invoice', '1'),
+            'show_credits_applied_on_invoice' => $this->tenant_option('show_credits_applied_on_invoice', '1'),
+            'show_amount_due_on_invoice' => $this->tenant_option('show_amount_due_on_invoice', '1'),
+            'view_estimate_only_logged_in' => $this->tenant_option('view_estimate_only_logged_in', '0'),
+            'show_sale_agent_on_estimates' => $this->tenant_option('show_sale_agent_on_estimates', '1'),
+            'show_project_on_estimate' => $this->tenant_option('show_project_on_estimate', '1'),
+            'estimate_auto_convert_to_invoice_on_client_accept' => $this->tenant_option('estimate_auto_convert_to_invoice_on_client_accept', '1'),
+            'exclude_estimate_from_client_area_with_draft_status' => $this->tenant_option('exclude_estimate_from_client_area_with_draft_status', '1'),
+            'show_subscriptions_in_customers_area' => $this->tenant_option('show_subscriptions_in_customers_area', '1'),
+            'after_subscription_payment_captured' => $this->tenant_option('after_subscription_payment_captured', 'send_invoice_and_receipt'),
+            'create_invoice_from_recurring_only_on_paid_invoices' => $this->tenant_option('create_invoice_from_recurring_only_on_paid_invoices', '0'),
+            'new_recurring_invoice_action' => $this->tenant_option('new_recurring_invoice_action', 'generate_and_send'),
+            'active_language'      => $this->tenant_option('active_language', (string) ($tenant['locale'] ?? 'english')),
+            'default_timezone'     => $this->tenant_option('default_timezone', (string) ($tenant['timezone'] ?? 'UTC')),
+            'default_currency'     => $this->tenant_option('default_currency', (string) ($tenant['currency'] ?? 'USD')),
+            'dateformat'           => $this->tenant_option('dateformat', 'Y-m-d|%Y-%m-%d'),
+            'time_format'          => $this->tenant_option('time_format', '24'),
+            'attach_invoice_to_payment_receipt_email' => $this->tenant_option('attach_invoice_to_payment_receipt_email', '0'),
+            'automatically_send_invoice_overdue_reminder_after' => $this->tenant_option('automatically_send_invoice_overdue_reminder_after', '0'),
+            'automatically_resend_invoice_overdue_reminder_after' => $this->tenant_option('automatically_resend_invoice_overdue_reminder_after', '0'),
+            'invoice_due_notice_before' => $this->tenant_option('invoice_due_notice_before', '0'),
+            'invoice_due_notice_resend_after' => $this->tenant_option('invoice_due_notice_resend_after', '0'),
+            'send_estimate_expiry_reminder_before' => $this->tenant_option('send_estimate_expiry_reminder_before', '0'),
+            'contract_expiration_before' => $this->tenant_option('contract_expiration_before', '0'),
+            'contract_sign_reminder_every_days' => $this->tenant_option('contract_sign_reminder_every_days', '0'),
+            'company_logo'         => $this->tenant_option('company_logo', ''),
+            'company_logo_dark'    => $this->tenant_option('company_logo_dark', ''),
+            'favicon'              => $this->tenant_option('favicon', ''),
+            'workspace_settings_staff_ids' => $this->tenant_option('kt_saas_workspace_settings_staff_ids', ''),
+            'workspace_governance_view_staff_ids' => $this->tenant_option('kt_saas_workspace_governance_view_staff_ids', ''),
+            'workspace_governance_manage_staff_ids' => $this->tenant_option('kt_saas_workspace_governance_manage_staff_ids', $this->tenant_option('kt_saas_workspace_governance_staff_ids', '')),
+        ];
+    }
+
+    public function save_tenant_workspace_settings($tenantId, array $data)
+    {
+        $tenant = kt_saas_current_tenant();
+        if ((int) ($tenant['id'] ?? 0) !== (int) $tenantId) {
+            $tenant = $this->find_landlord_tenant_row($tenantId);
+        }
+        if (!$tenant) {
+            return ['success' => false, 'message' => 'Không tìm thấy tenant.'];
+        }
+
+        $companyName = trim((string) ($data['companyname'] ?? ''));
+        if ($companyName === '') {
+            return ['success' => false, 'message' => 'Tên công ty là bắt buộc.'];
+        }
+
+        $options = $this->get_tenant_workspace_form_options();
+        $companyEmail = trim((string) ($data['company_email'] ?? ''));
+        if ($companyEmail !== '' && !filter_var($companyEmail, FILTER_VALIDATE_EMAIL)) {
+            return ['success' => false, 'message' => 'Email cÃ´ng ty khÃ´ng há»£p lá»‡.'];
+        }
+
+        $mailFromName = trim((string) ($data['kt_saas_mail_from_name'] ?? ''));
+        $mailReplyToEmail = trim((string) ($data['kt_saas_mail_reply_to_email'] ?? ''));
+        if ($mailReplyToEmail !== '' && !filter_var($mailReplyToEmail, FILTER_VALIDATE_EMAIL)) {
+            return ['success' => false, 'message' => 'Reply-to email khÃ´ng há»£p lá»‡.'];
+        }
+
+        $bccEmails = $this->normalizeWorkspaceEmailList($data['bcc_emails'] ?? '');
+        if ($bccEmails === null) {
+            return ['success' => false, 'message' => 'Danh sÃ¡ch BCC email khÃ´ng há»£p lá»‡.'];
+        }
+
+        $activeLanguage = trim((string) ($data['active_language'] ?? 'english')) ?: 'english';
+        if (!in_array($activeLanguage, $options['languages'], true)) {
+            $activeLanguage = 'english';
+        }
+
+        $defaultTimezone = trim((string) ($data['default_timezone'] ?? 'UTC')) ?: 'UTC';
+        if (!in_array($defaultTimezone, $options['timezones'], true)) {
+            $defaultTimezone = 'UTC';
+        }
+
+        $dateFormat = trim((string) ($data['dateformat'] ?? 'Y-m-d|%Y-%m-%d')) ?: 'Y-m-d|%Y-%m-%d';
+        if (!array_key_exists($dateFormat, $options['date_formats'])) {
+            $dateFormat = 'Y-m-d|%Y-%m-%d';
+        }
+
+        $invoiceNumberFormat = $this->normalizeWorkspaceNumberFormat($data['invoice_number_format'] ?? '1', $options['number_formats']);
+        $estimateNumberFormat = $this->normalizeWorkspaceNumberFormat($data['estimate_number_format'] ?? '1', $options['number_formats']);
+        $creditNoteNumberFormat = $this->normalizeWorkspaceNumberFormat($data['credit_note_number_format'] ?? '1', $options['number_formats']);
+
+        $defaultCurrency = strtoupper(trim((string) ($data['default_currency'] ?? 'USD')) ?: 'USD');
+        $defaultCurrency = substr((string) preg_replace('/[^A-Z]/', '', $defaultCurrency), 0, 10);
+        if ($defaultCurrency === '') {
+            $defaultCurrency = 'USD';
+        }
+
+        $invoiceCountryCode = strtoupper(trim((string) ($data['invoice_company_country_code'] ?? '')));
+        $invoiceCountryCode = substr((string) preg_replace('/[^A-Z]/', '', $invoiceCountryCode), 0, 2);
+        $currentSettings = $this->get_tenant_workspace_settings($tenantId);
+
+        $payload = [
+            'companyname'          => $companyName,
+            'company_email'        => $companyEmail,
+            'companyphonenumber'   => trim((string) ($data['companyphonenumber'] ?? '')),
+            'company_vat'          => trim((string) ($data['company_vat'] ?? '')),
+            'kt_saas_mail_from_name' => function_exists('mb_substr') ? mb_substr($mailFromName, 0, 191) : substr($mailFromName, 0, 191),
+            'kt_saas_mail_reply_to_email' => function_exists('mb_substr') ? mb_substr($mailReplyToEmail, 0, 191) : substr($mailReplyToEmail, 0, 191),
+            'bcc_emails'          => $bccEmails,
+            'email_signature'     => trim((string) ($data['email_signature'] ?? '')),
+            'email_header'        => trim((string) ($data['email_header'] ?? '')),
+            'email_footer'        => trim((string) ($data['email_footer'] ?? '')),
+            'invoice_company_name' => trim((string) ($data['invoice_company_name'] ?? '')) ?: $companyName,
+            'invoice_company_address' => trim((string) ($data['invoice_company_address'] ?? '')),
+            'invoice_company_city' => trim((string) ($data['invoice_company_city'] ?? '')),
+            'invoice_company_state' => trim((string) ($data['invoice_company_state'] ?? '')),
+            'invoice_company_country_code' => $invoiceCountryCode,
+            'invoice_company_postal_code' => trim((string) ($data['invoice_company_postal_code'] ?? '')),
+            'invoice_company_phonenumber' => trim((string) ($data['invoice_company_phonenumber'] ?? '')),
+            'invoice_due_after'    => (string) min(max(0, (int) ($data['invoice_due_after'] ?? 30)), 3650),
+            'estimate_due_after'   => (string) min(max(0, (int) ($data['estimate_due_after'] ?? 7)), 3650),
+            'invoice_prefix'       => $this->normalizeWorkspacePrefix($data['invoice_prefix'] ?? 'INV-', 'INV-'),
+            'next_invoice_number'  => (string) min(max(1, (int) ($data['next_invoice_number'] ?? 1)), 999999999),
+            'invoice_number_format' => $invoiceNumberFormat,
+            'estimate_prefix'      => $this->normalizeWorkspacePrefix($data['estimate_prefix'] ?? 'EST-', 'EST-'),
+            'next_estimate_number' => (string) min(max(1, (int) ($data['next_estimate_number'] ?? 1)), 999999999),
+            'estimate_number_format' => $estimateNumberFormat,
+            'credit_note_prefix'   => $this->normalizeWorkspacePrefix($data['credit_note_prefix'] ?? 'CN-', 'CN-'),
+            'next_credit_note_number' => (string) min(max(1, (int) ($data['next_credit_note_number'] ?? 1)), 999999999),
+            'credit_note_number_format' => $creditNoteNumberFormat,
+            'predefined_clientnote_invoice' => trim((string) ($data['predefined_clientnote_invoice'] ?? '')),
+            'predefined_terms_invoice' => trim((string) ($data['predefined_terms_invoice'] ?? '')),
+            'view_invoice_only_logged_in' => isset($data['view_invoice_only_logged_in']) ? '1' : '0',
+            'exclude_invoice_from_client_area_with_draft_status' => isset($data['exclude_invoice_from_client_area_with_draft_status']) ? '1' : '0',
+            'show_sale_agent_on_invoices' => isset($data['show_sale_agent_on_invoices']) ? '1' : '0',
+            'show_project_on_invoice' => isset($data['show_project_on_invoice']) ? '1' : '0',
+            'show_total_paid_on_invoice' => isset($data['show_total_paid_on_invoice']) ? '1' : '0',
+            'show_credits_applied_on_invoice' => isset($data['show_credits_applied_on_invoice']) ? '1' : '0',
+            'show_amount_due_on_invoice' => isset($data['show_amount_due_on_invoice']) ? '1' : '0',
+            'view_estimate_only_logged_in' => isset($data['view_estimate_only_logged_in']) ? '1' : '0',
+            'show_sale_agent_on_estimates' => isset($data['show_sale_agent_on_estimates']) ? '1' : '0',
+            'show_project_on_estimate' => isset($data['show_project_on_estimate']) ? '1' : '0',
+            'estimate_auto_convert_to_invoice_on_client_accept' => isset($data['estimate_auto_convert_to_invoice_on_client_accept']) ? '1' : '0',
+            'exclude_estimate_from_client_area_with_draft_status' => isset($data['exclude_estimate_from_client_area_with_draft_status']) ? '1' : '0',
+            'show_subscriptions_in_customers_area' => isset($data['show_subscriptions_in_customers_area']) ? '1' : '0',
+            'after_subscription_payment_captured' => $this->normalizeWorkspaceEnum(
+                $data['after_subscription_payment_captured'] ?? 'send_invoice_and_receipt',
+                ['send_invoice_and_receipt', 'send_invoice', 'send_payment_receipt', 'nothing'],
+                'send_invoice_and_receipt'
+            ),
+            'create_invoice_from_recurring_only_on_paid_invoices' => isset($data['create_invoice_from_recurring_only_on_paid_invoices']) ? '1' : '0',
+            'new_recurring_invoice_action' => $this->normalizeWorkspaceEnum(
+                $data['new_recurring_invoice_action'] ?? 'generate_and_send',
+                ['generate_and_send', 'generate_unpaid', 'generate_draft'],
+                'generate_and_send'
+            ),
+            'active_language'      => $activeLanguage,
+            'default_timezone'     => $defaultTimezone,
+            'default_currency'     => $defaultCurrency,
+            'dateformat'           => $dateFormat,
+            'time_format'          => (string) ((string) ($data['time_format'] ?? '24') === '12' ? '12' : '24'),
+            'attach_invoice_to_payment_receipt_email' => isset($data['attach_invoice_to_payment_receipt_email']) ? '1' : '0',
+            'automatically_send_invoice_overdue_reminder_after' => (string) min(max(0, (int) ($data['automatically_send_invoice_overdue_reminder_after'] ?? 0)), 3650),
+            'automatically_resend_invoice_overdue_reminder_after' => (string) min(max(0, (int) ($data['automatically_resend_invoice_overdue_reminder_after'] ?? 0)), 3650),
+            'invoice_due_notice_before' => (string) min(max(0, (int) ($data['invoice_due_notice_before'] ?? 0)), 3650),
+            'invoice_due_notice_resend_after' => (string) min(max(0, (int) ($data['invoice_due_notice_resend_after'] ?? 0)), 3650),
+            'send_estimate_expiry_reminder_before' => (string) min(max(0, (int) ($data['send_estimate_expiry_reminder_before'] ?? 0)), 3650),
+            'contract_expiration_before' => (string) min(max(0, (int) ($data['contract_expiration_before'] ?? 0)), 3650),
+            'contract_sign_reminder_every_days' => (string) min(max(0, (int) ($data['contract_sign_reminder_every_days'] ?? 0)), 3650),
+            'kt_saas_workspace_settings_staff_ids' => $this->normalizeWorkspaceStaffIds($data['workspace_settings_staff_ids'] ?? []),
+            'kt_saas_workspace_governance_view_staff_ids' => $this->normalizeWorkspaceStaffIds($data['workspace_governance_view_staff_ids'] ?? []),
+            'kt_saas_workspace_governance_manage_staff_ids' => $this->normalizeWorkspaceStaffIds($data['workspace_governance_manage_staff_ids'] ?? []),
+        ];
+
+        $payload['kt_saas_workspace_governance_staff_ids'] = $payload['kt_saas_workspace_governance_manage_staff_ids'];
+
+        if (kt_saas_is_tenant_runtime()) {
+            require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+            $entitlements = new TenantEntitlementService();
+            $viewerIds = json_decode($payload['kt_saas_workspace_governance_view_staff_ids'], true);
+            $managerIds = json_decode($payload['kt_saas_workspace_governance_manage_staff_ids'], true);
+            $viewerCount = is_array($viewerIds) ? count($viewerIds) : 0;
+            $managerCount = is_array($managerIds) ? count($managerIds) : 0;
+            $profile = kt_saas_current_profile();
+            if (!$profile) {
+                $profile = $entitlements->getRuntimeProfile(kt_saas_current_tenant());
+            }
+
+            try {
+                $entitlements->assertWithinLimit('governance_viewers', $viewerCount, $profile, $viewerCount);
+                $entitlements->assertWithinLimit('governance_managers', $managerCount, $profile, $managerCount);
+            } catch (\Throwable $e) {
+                return ['success' => false, 'message' => $e->getMessage()];
+            }
+
+            if (!kt_saas_workspace_feature_allowed('workspace.finance.edit', true)) {
+                $financeKeys = [
+                    'invoice_company_name',
+                    'invoice_company_address',
+                    'invoice_company_city',
+                    'invoice_company_state',
+                    'invoice_company_country_code',
+                    'invoice_company_postal_code',
+                    'invoice_company_phonenumber',
+                    'invoice_due_after',
+                    'estimate_due_after',
+                    'invoice_prefix',
+                    'next_invoice_number',
+                    'invoice_number_format',
+                    'estimate_prefix',
+                    'next_estimate_number',
+                    'estimate_number_format',
+                    'credit_note_prefix',
+                    'next_credit_note_number',
+                    'credit_note_number_format',
+                    'predefined_clientnote_invoice',
+                    'predefined_terms_invoice',
+                ];
+
+                foreach ($financeKeys as $key) {
+                    $payload[$key] = (string) ($currentSettings[$key] ?? '');
+                }
+            }
+
+            if (!kt_saas_workspace_feature_allowed('workspace.finance.advanced.edit', true)) {
+                $advancedFinanceKeys = [
+                    'view_invoice_only_logged_in',
+                    'exclude_invoice_from_client_area_with_draft_status',
+                    'show_sale_agent_on_invoices',
+                    'show_project_on_invoice',
+                    'show_total_paid_on_invoice',
+                    'show_credits_applied_on_invoice',
+                    'show_amount_due_on_invoice',
+                    'view_estimate_only_logged_in',
+                    'show_sale_agent_on_estimates',
+                    'show_project_on_estimate',
+                    'estimate_auto_convert_to_invoice_on_client_accept',
+                    'exclude_estimate_from_client_area_with_draft_status',
+                    'show_subscriptions_in_customers_area',
+                    'after_subscription_payment_captured',
+                    'create_invoice_from_recurring_only_on_paid_invoices',
+                    'new_recurring_invoice_action',
+                ];
+
+                foreach ($advancedFinanceKeys as $key) {
+                    $payload[$key] = (string) ($currentSettings[$key] ?? '');
+                }
+            }
+
+            if (!kt_saas_workspace_feature_allowed('workspace.mail.identity.edit', true)) {
+                $mailKeys = [
+                    'kt_saas_mail_from_name',
+                    'kt_saas_mail_reply_to_email',
+                    'bcc_emails',
+                    'email_signature',
+                    'email_header',
+                    'email_footer',
+                ];
+
+                foreach ($mailKeys as $key) {
+                    $payload[$key] = (string) ($currentSettings[$key] ?? '');
+                }
+            }
+
+            if (!kt_saas_workspace_feature_allowed('workspace.notifications.edit', true)) {
+                $notificationKeys = [
+                    'attach_invoice_to_payment_receipt_email',
+                    'automatically_send_invoice_overdue_reminder_after',
+                    'automatically_resend_invoice_overdue_reminder_after',
+                    'invoice_due_notice_before',
+                    'invoice_due_notice_resend_after',
+                    'send_estimate_expiry_reminder_before',
+                    'contract_expiration_before',
+                    'contract_sign_reminder_every_days',
+                ];
+
+                foreach ($notificationKeys as $key) {
+                    $payload[$key] = (string) ($currentSettings[$key] ?? '');
+                }
+            }
+        }
+
+        foreach ($payload as $name => $value) {
+            $this->upsert_tenant_option($name, $value);
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $landlordDb = $this->config->item('kt_saas_landlord_db');
+        if ($landlordDb) {
+            $landlordDb
+                ->where('id', (int) $tenantId)
+                ->update(db_prefix() . 'kt_saas_tenants', [
+                    'company_name' => $payload['companyname'],
+                    'timezone'     => $payload['default_timezone'],
+                    'locale'       => $payload['active_language'],
+                    'currency'     => $payload['default_currency'],
+                    'updated_at'   => $now,
+                    'updated_by'   => get_staff_user_id() ?: null,
+                ]);
+        }
+
+        if (kt_saas_is_tenant_runtime()) {
+            $runtimeTenant = kt_saas_current_tenant();
+            if (is_array($runtimeTenant) && (int) ($runtimeTenant['id'] ?? 0) === (int) $tenantId) {
+                $runtimeTenant['company_name'] = $payload['companyname'];
+                $runtimeTenant['timezone'] = $payload['default_timezone'];
+                $runtimeTenant['locale'] = $payload['active_language'];
+                $runtimeTenant['currency'] = $payload['default_currency'];
+                $GLOBALS['kt_saas_current_tenant'] = $runtimeTenant;
+                $this->config->set_item('kt_saas_current_tenant', $runtimeTenant);
+            }
+        }
+
+        $this->log_activity('tenant.workspace_settings_updated', 'info', [
+            'tenant_id'   => (int) $tenantId,
+            'tenant_code' => $tenant['tenant_code'] ?? null,
+            'fields'      => array_keys($payload),
+        ], (int) $tenantId);
+
+        if (kt_saas_is_tenant_runtime()) {
+            require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+            $entitlements = new TenantEntitlementService();
+            $entitlements->persistUsageSnapshot(kt_saas_current_tenant());
+        }
+
+        return ['success' => true];
+    }
+
+    public function get_active_tenant_staff_members()
+    {
+        if (!$this->db->table_exists(db_prefix() . 'staff')) {
+            return [];
+        }
+
+        return $this->db
+            ->select('staffid, firstname, lastname, email, role, admin, active')
+            ->from(db_prefix() . 'staff')
+            ->where('active', 1)
+            ->order_by('admin', 'desc')
+            ->order_by('firstname', 'asc')
+            ->order_by('lastname', 'asc')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_tenant_roles()
+    {
+        if (!$this->db->table_exists(db_prefix() . 'roles')) {
+            return [];
+        }
+
+        return $this->db
+            ->select('roleid, name, permissions')
+            ->from(db_prefix() . 'roles')
+            ->order_by('name', 'asc')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_tenant_role_usage_counts()
+    {
+        if (
+            !$this->db->table_exists(db_prefix() . 'roles')
+            || !$this->db->table_exists(db_prefix() . 'staff')
+        ) {
+            return [];
+        }
+
+        $rows = $this->db
+            ->select('role, COUNT(*) as total_count', false)
+            ->from(db_prefix() . 'staff')
+            ->where('active', 1)
+            ->where('role >', 0)
+            ->group_by('role')
+            ->get()
+            ->result_array();
+
+        $counts = [];
+        foreach ($rows as $row) {
+            $counts[(int) ($row['role'] ?? 0)] = (int) ($row['total_count'] ?? 0);
+        }
+
+        return $counts;
+    }
+
+    public function get_tenant_governance_summary()
+    {
+        $staffMembers = $this->get_active_tenant_staff_members();
+        $roles = $this->get_tenant_roles();
+        $adminCount = 0;
+
+        foreach ($staffMembers as $staff) {
+            if ((int) ($staff['admin'] ?? 0) === 1) {
+                $adminCount++;
+            }
+        }
+
+        return [
+            'staff_count' => count($staffMembers),
+            'admin_count' => $adminCount,
+            'role_count'  => count($roles),
+        ];
+    }
+
+    public function handle_tenant_workspace_branding_uploads($tenantId)
+    {
+        if (kt_saas_is_tenant_runtime() && !kt_saas_workspace_feature_allowed('workspace.branding.edit', true)) {
+            foreach (['company_logo', 'company_logo_dark', 'favicon'] as $field) {
+                if (!empty($_FILES[$field]['name'])) {
+                    return ['success' => false, 'message' => 'Gói hiện tại không cho phép cập nhật branding của workspace.'];
+                }
+            }
+        }
+
+        $fields = [
+            'company_logo'      => ['prefix' => 'tenant_' . (int) $tenantId . '_company_logo'],
+            'company_logo_dark' => ['prefix' => 'tenant_' . (int) $tenantId . '_company_logo_dark'],
+            'favicon'           => ['prefix' => 'tenant_' . (int) $tenantId . '_favicon'],
+        ];
+
+        $uploaded = [];
+        foreach ($fields as $field => $config) {
+            $filename = $this->processTenantBrandingUpload($field, $config['prefix']);
+            if ($filename !== null) {
+                $uploaded[$field] = $filename;
+            }
+        }
+
+        if (empty($uploaded)) {
+            return ['success' => true, 'message' => ''];
+        }
+
+        return ['success' => true, 'message' => 'Đã cập nhật branding của workspace.'];
+    }
+
+    public function remove_tenant_workspace_branding($optionName)
+    {
+        if (kt_saas_is_tenant_runtime() && !kt_saas_workspace_feature_allowed('workspace.branding.edit', true)) {
+            return false;
+        }
+
+        $optionName = trim((string) $optionName);
+        if (!in_array($optionName, ['company_logo', 'company_logo_dark', 'favicon'], true)) {
+            return false;
+        }
+
+        $filename = $this->tenant_option($optionName, '');
+        $path = rtrim(get_upload_path_by_type('company'), '/\\') . DIRECTORY_SEPARATOR . $filename;
+        if ($filename !== '' && file_exists($path)) {
+            @unlink($path);
+        }
+
+        $this->upsert_tenant_option($optionName, '');
+
+        return true;
+    }
+
+    public function get_tenant_subscription_profile($tenantId)
+    {
+        $subscription = $this->get_current_subscription($tenantId);
+        if (!$subscription) {
+            return null;
+        }
+
+        return $this->landlord_db()
+            ->select('s.*, p.plan_code, p.plan_name, p.price, p.setup_fee, p.trial_days, p.grace_days, p.billing_cycle, p.module_json, p.limit_staff, p.limit_clients, p.limit_storage_mb, p.limit_invoices, p.limit_projects, p.limit_api_requests_daily, p.limit_warehouses, p.limit_automations')
+            ->from(db_prefix() . 'kt_saas_subscriptions s')
+            ->join(db_prefix() . 'kt_saas_plans p', 'p.id = s.plan_id', 'left')
+            ->where('s.id', (int) $subscription['id'])
+            ->get()
+            ->row_array();
+    }
+
+    public function get_public_plans()
+    {
+        return $this->landlord_db()
+            ->where('deleted_at IS NULL', null, false)
+            ->where('is_active', 1)
+            ->where('is_public', 1)
+            ->order_by('price', 'asc')
+            ->order_by('id', 'asc')
+            ->get(db_prefix() . 'kt_saas_plans')
+            ->result_array();
+    }
+
+    public function get_workspace_feature_catalog()
+    {
+        return [
+            'workspace.governance.view' => [
+                'module_name'  => 'workspace',
+                'label'        => 'Governance: view',
+                'description'  => 'Allow tenant users to open the Users & Roles governance workspace.',
+            ],
+            'workspace.branding.edit' => [
+                'module_name'  => 'workspace',
+                'label'        => 'Branding: edit',
+                'description'  => 'Allow editing tenant workspace branding assets such as logos and favicon.',
+            ],
+            'workspace.finance.edit' => [
+                'module_name'  => 'workspace',
+                'label'        => 'Finance basics: edit',
+                'description'  => 'Allow editing tenant finance basics such as prefixes, numbering, due days, and default invoice text.',
+            ],
+            'workspace.finance.advanced.edit' => [
+                'module_name'  => 'workspace',
+                'label'        => 'Finance advanced: edit',
+                'description'  => 'Allow editing tenant invoice, estimate, subscription, and recurring behavior toggles without exposing global cron or payment infrastructure.',
+            ],
+            'workspace.mail.identity.edit' => [
+                'module_name'  => 'workspace',
+                'label'        => 'Mail identity: edit',
+                'description'  => 'Allow editing tenant mail identity such as sender display name, reply-to, BCC, and email signature/header/footer.',
+            ],
+            'workspace.notifications.edit' => [
+                'module_name'  => 'workspace',
+                'label'        => 'Notifications: edit',
+                'description'  => 'Allow editing tenant reminder timings and customer-facing notification preferences without exposing cron or mail transport infrastructure.',
+            ],
+            'workspace.governance.manage' => [
+                'module_name'  => 'workspace',
+                'label'        => 'Governance: manage',
+                'description'  => 'Allow delegated governance managers to change governance assignments and settings.',
+            ],
+            'workspace.roles.manage' => [
+                'module_name'  => 'workspace',
+                'label'        => 'Roles: manage',
+                'description'  => 'Allow creating, editing, and deleting tenant-local custom roles.',
+            ],
+            'workspace.departments.manage' => [
+                'module_name'  => 'workspace',
+                'label'        => 'Departments: manage',
+                'description'  => 'Allow creating, editing, and deleting tenant-local departments.',
+            ],
+        ];
+    }
+
+    public function get_integration_feature_catalog()
+    {
+        return [
+            'kt_sepay.settings.edit' => [
+                'module_name' => 'kt_sepay',
+                'label'       => 'KT SePay: edit settings',
+                'description' => 'Allow tenant to update SePay account, prefixes, QR and activation settings.',
+            ],
+            'kt_sepay.health.run' => [
+                'module_name' => 'kt_sepay',
+                'label'       => 'KT SePay: run health checks',
+                'description' => 'Allow tenant to run SePay connection, bank account, QR, webhook and reconciliation tests.',
+            ],
+            'kt_sepay.reconcile.run' => [
+                'module_name' => 'kt_sepay',
+                'label'       => 'KT SePay: run reconciliation',
+                'description' => 'Allow tenant to trigger manual SePay reconciliation and review reconciliation actions.',
+            ],
+            'kt_sepay.payment_requests.create' => [
+                'module_name' => 'kt_sepay',
+                'label'       => 'KT SePay: create manual payment requests',
+                'description' => 'Allow tenant to create tenant-owned manual payment requests and QR links.',
+            ],
+            'einvoice.settings.edit' => [
+                'module_name' => 'einvoice',
+                'label'       => 'eInvoice: edit settings',
+                'description' => 'Allow tenant to edit e-Invoice defaults, attachment toggles and template selection.',
+            ],
+        ];
+    }
+
+    public function get_plan_workspace_feature_keys($planId)
+    {
+        $planId = (int) $planId;
+        if ($planId <= 0) {
+            return [];
+        }
+
+        $rows = $this->landlord_db()
+            ->select('feature_key')
+            ->from(db_prefix() . 'kt_saas_plan_features')
+            ->where('plan_id', $planId)
+            ->where('feature_key LIKE', 'workspace.%')
+            ->where('is_enabled', 1)
+            ->get()
+            ->result_array();
+
+        return array_values(array_unique(array_map(static function ($row) {
+            return (string) ($row['feature_key'] ?? '');
+        }, $rows)));
+    }
+
+    public function get_plan_integration_feature_keys($planId)
+    {
+        $planId = (int) $planId;
+        if ($planId <= 0) {
+            return [];
+        }
+
+        $catalog = $this->get_integration_feature_catalog();
+        if (empty($catalog)) {
+            return [];
+        }
+
+        $rows = $this->landlord_db()
+            ->select('feature_key')
+            ->from(db_prefix() . 'kt_saas_plan_features')
+            ->where('plan_id', $planId)
+            ->where_in('feature_key', array_keys($catalog))
+            ->where('is_enabled', 1)
+            ->get()
+            ->result_array();
+
+        return array_values(array_unique(array_map(static function ($row) {
+            return (string) ($row['feature_key'] ?? '');
+        }, $rows)));
+    }
+
+    public function get_tenant_billing_invoices($tenantId, $limit = 50)
+    {
+        return $this->landlord_db()
+            ->select('i.*, s.status as subscription_status, p.plan_name')
+            ->from(db_prefix() . 'kt_saas_invoices i')
+            ->join(db_prefix() . 'kt_saas_subscriptions s', 's.id = i.subscription_id', 'left')
+            ->join(db_prefix() . 'kt_saas_plans p', 'p.id = s.plan_id', 'left')
+            ->where('i.tenant_id', (int) $tenantId)
+            ->where('i.deleted_at IS NULL', null, false)
+            ->order_by('i.id', 'desc')
+            ->limit((int) $limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_tenant_billing_payments($tenantId, $limit = 50)
+    {
+        return $this->landlord_db()
+            ->select('p.*, i.invoice_number')
+            ->from(db_prefix() . 'kt_saas_payments p')
+            ->join(db_prefix() . 'kt_saas_invoices i', 'i.id = p.invoice_id', 'left')
+            ->where('p.tenant_id', (int) $tenantId)
+            ->where('p.deleted_at IS NULL', null, false)
+            ->order_by('p.id', 'desc')
+            ->limit((int) $limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_tenant_usage_history($tenantId, $limit = 60)
+    {
+        return $this->landlord_db()
+            ->select('tenant_id, module_name, metric_key, used_value as metric_value, DATE(updated_at) as snapshot_date, period_start, period_end, updated_at', false)
+            ->where('tenant_id', (int) $tenantId)
+            ->order_by('updated_at', 'desc')
+            ->order_by('metric_key', 'asc')
+            ->limit((int) $limit)
+            ->get(db_prefix() . 'kt_saas_usage')
+            ->result_array();
+    }
+
+    public function get_latest_tenant_usage_snapshot($tenantId)
+    {
+        $snapshotDateRow = $this->landlord_db()
+            ->select('MAX(DATE(updated_at)) as snapshot_date', false)
+            ->where('tenant_id', (int) $tenantId)
+            ->get(db_prefix() . 'kt_saas_usage')
+            ->row_array();
+
+        $snapshotDate = $snapshotDateRow['snapshot_date'] ?? null;
+        if (empty($snapshotDate)) {
+            return ['snapshot_date' => null, 'metrics' => []];
+        }
+
+        $rows = $this->landlord_db()
+            ->select('metric_key, used_value as metric_value, DATE(updated_at) as snapshot_date', false)
+            ->where('tenant_id', (int) $tenantId)
+            ->where('updated_at >=', $snapshotDate . ' 00:00:00')
+            ->where('updated_at <=', $snapshotDate . ' 23:59:59')
+            ->get(db_prefix() . 'kt_saas_usage')
+            ->result_array();
+
+        $metrics = [];
+        foreach ($rows as $row) {
+            $metrics[$row['metric_key']] = (float) $row['metric_value'];
+        }
+
+        return [
+            'snapshot_date' => $snapshotDate,
+            'metrics'       => $metrics,
+        ];
+    }
+
+    public function find_open_tenant_invoice_by_reason($tenantId, $subscriptionId, $reason, $targetPlanId = null)
+    {
+        $rows = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('subscription_id', (int) $subscriptionId)
+            ->where('deleted_at IS NULL', null, false)
+            ->where_in('status', ['draft', 'issued', 'pending_payment', 'overdue'])
+            ->order_by('id', 'desc')
+            ->get(db_prefix() . 'kt_saas_invoices')
+            ->result_array();
+
+        foreach ($rows as $row) {
+            $payload = json_decode((string) ($row['payload_json'] ?? ''), true);
+            if (!is_array($payload)) {
+                $payload = [];
+            }
+
+            $payloadReason = (string) ($payload['reason'] ?? ($payload['context']['reason'] ?? 'subscription_renewal'));
+            if ($payloadReason !== (string) $reason) {
+                continue;
+            }
+
+            if ($targetPlanId !== null) {
+                $payloadTargetPlanId = (int) ($payload['target_plan_id'] ?? 0);
+                if ($payloadTargetPlanId !== (int) $targetPlanId) {
+                    continue;
+                }
+            }
+
+            return $row;
+        }
+
+        return null;
+    }
+
+    public function get_open_tenant_plan_change_requests($tenantId, $subscriptionId)
+    {
+        $rows = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('subscription_id', (int) $subscriptionId)
+            ->where('deleted_at IS NULL', null, false)
+            ->where_in('status', ['draft', 'issued', 'pending_payment', 'overdue'])
+            ->order_by('id', 'desc')
+            ->get(db_prefix() . 'kt_saas_invoices')
+            ->result_array();
+
+        $requests = [];
+        foreach ($rows as $row) {
+            $payload = json_decode((string) ($row['payload_json'] ?? ''), true);
+            if (!is_array($payload)) {
+                continue;
+            }
+
+            $reason = (string) ($payload['reason'] ?? ($payload['context']['reason'] ?? ''));
+            if ($reason !== 'plan_change_request') {
+                continue;
+            }
+
+            $targetPlanId = (int) ($payload['target_plan_id'] ?? 0);
+            if ($targetPlanId <= 0) {
+                continue;
+            }
+
+            $requests[$targetPlanId] = $row;
+        }
+
+        return $requests;
+    }
+
+    public function find_tenant_invoice_by_reason_period($tenantId, $subscriptionId, $reason, $period)
+    {
+        $rows = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('subscription_id', (int) $subscriptionId)
+            ->where('deleted_at IS NULL', null, false)
+            ->order_by('id', 'desc')
+            ->get(db_prefix() . 'kt_saas_invoices')
+            ->result_array();
+
+        foreach ($rows as $row) {
+            $payload = json_decode((string) ($row['payload_json'] ?? ''), true);
+            if (!is_array($payload)) {
+                continue;
+            }
+
+            if ((string) ($payload['reason'] ?? '') !== (string) $reason) {
+                continue;
+            }
+
+            if ((string) ($payload['overage_period'] ?? '') !== (string) $period) {
+                continue;
+            }
+
+            return $row;
+        }
+
+        return null;
+    }
+
+    public function get_dashboard_summary()
+    {
+        return [
+            'tenants'          => $this->safe_count('kt_saas_tenants'),
+            'plans'            => $this->safe_count('kt_saas_plans'),
+            'subscriptions'    => $this->safe_count('kt_saas_subscriptions'),
+            'provision_jobs'   => $this->safe_count('kt_saas_provision_jobs'),
+            'domains'          => $this->safe_count('kt_saas_domains'),
+            'usage_snapshots'  => $this->safe_count('kt_saas_usage'),
+            'billing_invoices' => $this->safe_count('kt_saas_invoices'),
+        ];
+    }
+
+    public function get_billing_dashboard_overview()
+    {
+        $invoiceRows = $this->db
+            ->select('status, COUNT(*) as total_count, SUM(grand_total) as total_amount')
+            ->from(db_prefix() . 'kt_saas_invoices')
+            ->where('deleted_at IS NULL', null, false)
+            ->group_by('status')
+            ->get()
+            ->result_array();
+
+        $paymentRows = $this->db
+            ->select('status, COUNT(*) as total_count, SUM(amount) as total_amount')
+            ->from(db_prefix() . 'kt_saas_payments')
+            ->where('deleted_at IS NULL', null, false)
+            ->group_by('status')
+            ->get()
+            ->result_array();
+
+        $overview = [
+            'invoices' => [
+                'pending_payment' => ['count' => 0, 'amount' => 0.0],
+                'overdue'         => ['count' => 0, 'amount' => 0.0],
+                'paid'            => ['count' => 0, 'amount' => 0.0],
+            ],
+            'payments' => [
+                'pending' => ['count' => 0, 'amount' => 0.0],
+                'paid'    => ['count' => 0, 'amount' => 0.0],
+                'failed'  => ['count' => 0, 'amount' => 0.0],
+            ],
+        ];
+
+        foreach ($invoiceRows as $row) {
+            $status = (string) $row['status'];
+            if (!isset($overview['invoices'][$status])) {
+                $overview['invoices'][$status] = ['count' => 0, 'amount' => 0.0];
+            }
+            $overview['invoices'][$status] = [
+                'count'  => (int) $row['total_count'],
+                'amount' => (float) $row['total_amount'],
+            ];
+        }
+
+        foreach ($paymentRows as $row) {
+            $status = (string) $row['status'];
+            if (!isset($overview['payments'][$status])) {
+                $overview['payments'][$status] = ['count' => 0, 'amount' => 0.0];
+            }
+            $overview['payments'][$status] = [
+                'count'  => (int) $row['total_count'],
+                'amount' => (float) $row['total_amount'],
+            ];
+        }
+
+        return $overview;
+    }
+
+    public function get_recent_activity_logs($limit = 15)
+    {
+        return $this->db
+            ->order_by('id', 'desc')
+            ->limit((int) $limit)
+            ->get(db_prefix() . 'kt_saas_activity_logs')
+            ->result_array();
+    }
+
+    public function get_tenant_activity_logs($tenantId, array $filters = [], $limit = 100)
+    {
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0) {
+            return [];
+        }
+
+        $db = $this->landlord_db();
+        $db->where('tenant_id', $tenantId);
+
+        $eventKey = trim((string) ($filters['event_key'] ?? ''));
+        if ($eventKey !== '') {
+            $db->where('event_key', $eventKey);
+        }
+
+        $severity = trim((string) ($filters['severity'] ?? ''));
+        if ($severity !== '') {
+            $db->where('severity', $severity);
+        }
+
+        return $db
+            ->order_by('id', 'desc')
+            ->limit((int) $limit)
+            ->get(db_prefix() . 'kt_saas_activity_logs')
+            ->result_array();
+    }
+
+    public function get_usage_dashboard_overview()
+    {
+        $today = date('Y-m-d');
+        $metrics = ['staff', 'clients', 'projects', 'invoices', 'warehouses', 'storage_mb'];
+        $rows = $this->db
+            ->select('metric_key, SUM(used_value) as total_value, COUNT(DISTINCT tenant_id) as tenant_count')
+            ->from(db_prefix() . 'kt_saas_usage')
+            ->where('updated_at >=', $today . ' 00:00:00')
+            ->where('updated_at <=', $today . ' 23:59:59')
+            ->where_in('metric_key', $metrics)
+            ->group_by('metric_key')
+            ->get()
+            ->result_array();
+
+        $overview = [];
+        foreach ($metrics as $metric) {
+            $overview[$metric] = [
+                'metric_key'   => $metric,
+                'total_value'  => 0,
+                'tenant_count' => 0,
+            ];
+        }
+
+        foreach ($rows as $row) {
+            $overview[$row['metric_key']] = [
+                'metric_key'   => $row['metric_key'],
+                'total_value'  => (float) $row['total_value'],
+                'tenant_count' => (int) $row['tenant_count'],
+            ];
+        }
+
+        return $overview;
+    }
+
+    public function get_latest_usage_snapshots($limit = 50)
+    {
+        $subquery = '(SELECT tenant_id, metric_key, MAX(updated_at) as latest_updated_at FROM ' . db_prefix() . 'kt_saas_usage GROUP BY tenant_id, metric_key) latest';
+
+        return $this->db
+            ->select('u.*, u.used_value as metric_value, DATE(u.updated_at) as snapshot_date, t.tenant_code, t.company_name', false)
+            ->from(db_prefix() . 'kt_saas_usage u')
+            ->join($subquery, 'latest.tenant_id = u.tenant_id AND latest.metric_key = u.metric_key AND latest.latest_updated_at = u.updated_at', 'inner')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = u.tenant_id', 'left')
+            ->order_by('u.updated_at', 'desc')
+            ->order_by('u.tenant_id', 'asc')
+            ->order_by('u.metric_key', 'asc')
+            ->limit((int) $limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_overage_dashboard_rows()
+    {
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/UsageSnapshotRunner.php');
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+
+        $runner = new UsageSnapshotRunner();
+        $tenants = $runner->listEligibleTenants(200);
+
+        $rows = [];
+        foreach ($tenants as $tenant) {
+            $latestSnapshot = $this->get_latest_tenant_usage_snapshot((int) $tenant['id']);
+            if (empty($latestSnapshot['metrics'])) {
+                continue;
+            }
+
+            $entitlements = new TenantEntitlementService();
+            $profile = $entitlements->getRuntimeProfile($tenant);
+            $overages = $entitlements->buildOverageSummary($tenant, $profile, $latestSnapshot['metrics']);
+            if (empty($overages)) {
+                continue;
+            }
+
+            foreach ($overages as $overage) {
+                $rows[] = [
+                    'tenant_id'      => (int) $tenant['id'],
+                    'tenant_code'    => $tenant['tenant_code'],
+                    'company_name'   => $tenant['company_name'],
+                    'plan_name'      => $tenant['plan_name'] ?? '',
+                    'metric_key'     => $overage['metric_key'],
+                    'current_value'  => $overage['current_value'],
+                    'limit_value'    => $overage['limit_value'],
+                    'excess_value'   => $overage['excess_value'],
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    public function count_usage_rows_older_than_retention()
+    {
+        $days = max((int) kt_saas_get_option('kt_saas_usage_retention_days', '90'), 7);
+        $cutoffDate = date('Y-m-d', strtotime('-' . $days . ' days'));
+
+        return (int) $this->db
+            ->where('updated_at <', $cutoffDate . ' 00:00:00')
+            ->count_all_results(db_prefix() . 'kt_saas_usage');
+    }
+
+    public function get_runtime_overview()
+    {
+        $manifestPath = module_dir_path(KT_SAAS_MODULE, 'tenant_bootstrap/manifests/');
+        $manifestCount = 0;
+        if (is_dir($manifestPath)) {
+            $files = glob($manifestPath . '*.json');
+            $manifestCount = is_array($files) ? count($files) : 0;
+        }
+
+        return [
+            'runtime_enabled' => kt_saas_get_option('kt_saas_runtime_enabled', '0'),
+            'landlord_host'   => kt_saas_get_option('kt_saas_landlord_host', parse_url(APP_BASE_URL, PHP_URL_HOST)),
+            'base_domain'     => kt_saas_get_option('kt_saas_base_domain', 'crm.local'),
+            'queue_mode'      => kt_saas_get_option('kt_saas_queue_mode', 'database'),
+            'usage_retention_days' => kt_saas_get_option('kt_saas_usage_retention_days', '90'),
+            'manifests'       => $manifestCount,
+        ];
+    }
+
+    public function get_landlord_table_status()
+    {
+        $tables = [
+            'kt_saas_tenants',
+            'kt_saas_plans',
+            'kt_saas_subscriptions',
+            'kt_saas_invoices',
+            'kt_saas_payments',
+            'kt_saas_domains',
+            'kt_saas_module_catalog',
+            'kt_saas_modules',
+            'kt_saas_plan_features',
+            'kt_saas_tenant_entitlements',
+            'kt_saas_usage',
+            'kt_saas_activity_logs',
+            'kt_saas_provision_jobs',
+            'kt_saas_backups',
+        ];
+
+        $rows = [];
+        foreach ($tables as $table) {
+            $rows[] = [
+                'table'   => db_prefix() . $table,
+                'exists'  => $this->db->table_exists(db_prefix() . $table),
+                'records' => $this->safe_count($table),
+            ];
+        }
+
+        return $rows;
+    }
+
+    public function get_tenants()
+    {
+        $this->db->select('t.*, p.plan_name');
+        $this->db->from(db_prefix() . 'kt_saas_tenants t');
+        $this->db->join(db_prefix() . 'kt_saas_plans p', 'p.id = t.plan_id', 'left');
+        $this->db->where('t.deleted_at IS NULL', null, false);
+        $this->db->order_by('t.id', 'desc');
+
+        return $this->db->get()->result_array();
+    }
+
+    public function get_tenant($id)
+    {
+        return $this->db->where('id', (int) $id)->where('deleted_at IS NULL', null, false)->get(db_prefix() . 'kt_saas_tenants')->row_array();
+    }
+
+    public function get_module_catalog()
+    {
+        return $this->landlord_db()
+            ->order_by('category', 'asc')
+            ->order_by('display_name', 'asc')
+            ->get(db_prefix() . 'kt_saas_module_catalog')
+            ->result_array();
+    }
+
+    public function sync_module_catalog()
+    {
+        if (!class_exists('App_modules')) {
+            include_once(LIBSPATH . 'App_modules.php');
+        }
+
+        $modules = $this->app_modules->get();
+        $now = date('Y-m-d H:i:s');
+        $touched = 0;
+
+        foreach ($modules as $module) {
+            $systemName = (string) ($module['system_name'] ?? '');
+            if ($systemName === '' || $systemName === KT_SAAS_MODULE) {
+                continue;
+            }
+
+            $existing = $this->landlord_db()
+                ->where('module_name', $systemName)
+                ->get(db_prefix() . 'kt_saas_module_catalog')
+                ->row_array();
+
+            $payload = [
+                'display_name'     => (string) ($module['headers']['module_name'] ?? $systemName),
+                'slug'             => str_replace('_', '-', $systemName),
+                'description'      => (string) ($module['headers']['description'] ?? ''),
+                'category'         => 'general',
+                'version'          => (string) ($module['headers']['version'] ?? '1.0.0'),
+                'is_core'          => 0,
+                // Keep the SaaS catalog switch stable across syncs instead of mirroring landlord activation.
+                'is_global_active' => $existing ? (int) ($existing['is_global_active'] ?? 0) : (!empty($module['activated']) ? 1 : 0),
+                'has_ui'           => 1,
+                'has_routes'       => 1,
+                'has_cron'         => 0,
+                'detected_from'    => 'system',
+                'synced_at'        => $now,
+            ];
+
+            if ($existing) {
+                $this->landlord_db()->where('id', (int) $existing['id'])->update(db_prefix() . 'kt_saas_module_catalog', $payload);
+            } else {
+                $payload['module_name'] = $systemName;
+                $payload['created_at'] = $now;
+                $this->landlord_db()->insert(db_prefix() . 'kt_saas_module_catalog', $payload);
+            }
+            $touched++;
+        }
+
+        return $touched;
+    }
+
+    public function set_module_catalog_status($moduleName, $isActive)
+    {
+        $moduleName = strtolower(trim((string) $moduleName));
+        if ($moduleName === '' || $moduleName === KT_SAAS_MODULE) {
+            return ['success' => false, 'message' => 'Module name is invalid.'];
+        }
+
+        $existing = $this->landlord_db()
+            ->where('module_name', $moduleName)
+            ->get(db_prefix() . 'kt_saas_module_catalog')
+            ->row_array();
+
+        if (!$existing) {
+            return ['success' => false, 'message' => 'Module catalog record not found.'];
+        }
+
+        $this->landlord_db()->where('id', (int) $existing['id'])->update(db_prefix() . 'kt_saas_module_catalog', [
+            'is_global_active' => $isActive ? 1 : 0,
+            'synced_at'        => date('Y-m-d H:i:s'),
+        ]);
+
+        $this->sync_all_tenant_module_registries();
+        $this->log_activity('module.catalog_updated', 'info', [
+            'module_name'      => $moduleName,
+            'is_global_active' => $isActive ? 1 : 0,
+        ]);
+
+        return ['success' => true];
+    }
+
+    public function rebuild_module_registries($planId = null)
+    {
+        $this->sync_all_tenant_module_registries($planId !== null ? (int) $planId : null);
+    }
+
+    public function get_tenant_module_registry($tenantId)
+    {
+        $tenant = $this->get_tenant((int) $tenantId);
+        if (!$tenant) {
+            return [];
+        }
+
+        $this->sync_tenant_module_registry((int) $tenantId);
+
+        return $this->landlord_db()
+            ->select('m.*, c.display_name, c.slug, c.description, c.category, c.version, c.is_global_active, e.is_enabled as override_enabled, e.overridden')
+            ->from(db_prefix() . 'kt_saas_modules m')
+            ->join(db_prefix() . 'kt_saas_module_catalog c', 'c.module_name = m.module_name', 'left')
+            ->join(db_prefix() . 'kt_saas_tenant_entitlements e', 'e.tenant_id = m.tenant_id AND e.module_name = m.module_name AND e.feature_key = CONCAT(m.module_name,\'.access\')', 'left')
+            ->where('m.tenant_id', (int) $tenantId)
+            ->where('m.deleted_at IS NULL', null, false)
+            ->order_by('c.display_name', 'asc')
+            ->get()
+            ->result_array();
+    }
+
+    public function save_tenant_module_override($tenantId, $moduleName, $mode)
+    {
+        $tenant = $this->get_tenant((int) $tenantId);
+        if (!$tenant) {
+            return ['success' => false, 'message' => 'Tenant not found.'];
+        }
+
+        $moduleName = strtolower(trim((string) $moduleName));
+        $mode = strtolower(trim((string) $mode));
+        if ($moduleName === '') {
+            return ['success' => false, 'message' => 'Module name is required.'];
+        }
+
+        $catalog = $this->landlord_db()
+            ->where('module_name', $moduleName)
+            ->get(db_prefix() . 'kt_saas_module_catalog')
+            ->row_array();
+        if (!$catalog) {
+            return ['success' => false, 'message' => 'Module catalog record not found.'];
+        }
+
+        $featureKey = $moduleName . '.access';
+        $now = date('Y-m-d H:i:s');
+
+        if ($mode === 'inherit') {
+            $this->landlord_db()
+                ->where('tenant_id', (int) $tenantId)
+                ->where('module_name', $moduleName)
+                ->where('feature_key', $featureKey)
+                ->delete(db_prefix() . 'kt_saas_tenant_entitlements');
+        } else {
+            $enabled = $mode === 'enable' ? 1 : 0;
+            $existing = $this->landlord_db()
+                ->where('tenant_id', (int) $tenantId)
+                ->where('module_name', $moduleName)
+                ->where('feature_key', $featureKey)
+                ->get(db_prefix() . 'kt_saas_tenant_entitlements')
+                ->row_array();
+
+            $payload = [
+                'tenant_id'      => (int) $tenantId,
+                'module_name'    => $moduleName,
+                'feature_key'    => $featureKey,
+                'is_enabled'     => $enabled,
+                'source_plan_id' => (int) ($tenant['plan_id'] ?? 0) ?: null,
+                'overridden'     => 1,
+                'updated_at'     => $now,
+            ];
+
+            if ($existing) {
+                $this->landlord_db()->where('id', (int) $existing['id'])->update(db_prefix() . 'kt_saas_tenant_entitlements', $payload);
+            } else {
+                $payload['created_at'] = $now;
+                $this->landlord_db()->insert(db_prefix() . 'kt_saas_tenant_entitlements', $payload);
+            }
+        }
+
+        $this->sync_tenant_module_registry((int) $tenantId);
+        $this->log_activity('tenant.module_override_updated', 'info', [
+            'tenant_id'    => (int) $tenantId,
+            'module_name'  => $moduleName,
+            'override_mode'=> $mode,
+        ], (int) $tenantId);
+
+        return ['success' => true];
+    }
+
+    public function get_backups($tenantId = null)
+    {
+        $this->landlord_db()
+            ->select('b.*, t.tenant_code, t.company_name')
+            ->from(db_prefix() . 'kt_saas_backups b')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = b.tenant_id', 'left')
+            ->order_by('b.id', 'desc');
+
+        if ($tenantId !== null) {
+            $this->landlord_db()->where('b.tenant_id', (int) $tenantId);
+        }
+
+        return $this->landlord_db()->get()->result_array();
+    }
+
+    public function get_backup($backupId)
+    {
+        return $this->landlord_db()
+            ->where('id', (int) $backupId)
+            ->get(db_prefix() . 'kt_saas_backups')
+            ->row_array();
+    }
+
+    public function get_running_backup_for_tenant($tenantId)
+    {
+        return $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('status', 'running')
+            ->order_by('id', 'desc')
+            ->limit(1)
+            ->get(db_prefix() . 'kt_saas_backups')
+            ->row_array();
+    }
+
+    public function create_backup_record($tenantId, $backupType = 'db', $storageDriver = 'local')
+    {
+        $now = date('Y-m-d H:i:s');
+        $this->landlord_db()->insert(db_prefix() . 'kt_saas_backups', [
+            'tenant_id'        => (int) $tenantId,
+            'backup_type'      => $backupType,
+            'status'           => 'queued',
+            'storage_driver'   => $storageDriver,
+            'created_at'       => $now,
+            'updated_at'       => $now,
+        ]);
+
+        return (int) $this->landlord_db()->insert_id();
+    }
+
+    public function update_backup_record($backupId, array $payload)
+    {
+        $payload['updated_at'] = date('Y-m-d H:i:s');
+        $this->landlord_db()->where('id', (int) $backupId)->update(db_prefix() . 'kt_saas_backups', $payload);
+    }
+
+    public function cleanup_expired_backups($retentionDays)
+    {
+        $retentionDays = max((int) $retentionDays, 1);
+        $cutoff = date('Y-m-d H:i:s', strtotime('-' . $retentionDays . ' days'));
+
+        $expired = $this->landlord_db()
+            ->where('status', 'done')
+            ->where('completed_at IS NOT NULL', null, false)
+            ->where('completed_at <', $cutoff)
+            ->get(db_prefix() . 'kt_saas_backups')
+            ->result_array();
+
+        $deleted = 0;
+        foreach ($expired as $backup) {
+            $path = (string) ($backup['file_path'] ?? '');
+            if ($path !== '' && is_file($path)) {
+                @unlink($path);
+            }
+
+            $this->landlord_db()
+                ->where('id', (int) $backup['id'])
+                ->delete(db_prefix() . 'kt_saas_backups');
+            $deleted++;
+        }
+
+        return [
+            'deleted' => $deleted,
+            'cutoff'  => $cutoff,
+        ];
+    }
+
+    public function save_tenant($data, $id = null)
+    {
+        $tenantCode = strtoupper(trim((string) ($data['tenant_code'] ?? '')));
+        $companyName = trim((string) ($data['company_name'] ?? ''));
+        $ownerName = trim((string) ($data['owner_name'] ?? ''));
+        $ownerEmail = trim((string) ($data['owner_email'] ?? ''));
+
+        if ($tenantCode === '' || $companyName === '' || $ownerName === '' || $ownerEmail === '') {
+            return ['success' => false, 'message' => 'Tenant code, company name, owner name, and owner email are required.'];
+        }
+
+        if (!filter_var($ownerEmail, FILTER_VALIDATE_EMAIL)) {
+            return ['success' => false, 'message' => 'Owner email is invalid.'];
+        }
+
+        if ($this->tenantCodeExists($tenantCode, $id)) {
+            return ['success' => false, 'message' => 'Tenant code already exists.'];
+        }
+
+        $subdomain = strtolower(trim((string) ($data['subdomain'] ?? '')));
+        if ($subdomain !== '' && $this->subdomainExists($subdomain, $id)) {
+            return ['success' => false, 'message' => 'Subdomain already exists.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $payload = [
+            'tenant_code'          => $tenantCode,
+            'company_name'         => $companyName,
+            'owner_name'           => $ownerName,
+            'owner_email'          => $ownerEmail,
+            'phone'                => trim((string) ($data['phone'] ?? '')),
+            'status'               => trim((string) ($data['status'] ?? 'draft')),
+            'plan_id'              => !empty($data['plan_id']) ? (int) $data['plan_id'] : null,
+            'db_name'              => trim((string) ($data['db_name'] ?? '')),
+            'db_host'              => trim((string) ($data['db_host'] ?? APP_DB_HOSTNAME)),
+            'db_port'              => trim((string) ($data['db_port'] ?? '3306')),
+            'db_user'              => trim((string) ($data['db_user'] ?? '')),
+            'db_password_encrypted'=> $this->encryptNullable(trim((string) ($data['db_password'] ?? ''))),
+            'subdomain'            => $subdomain !== '' ? $subdomain : null,
+            'custom_domain'        => trim((string) ($data['custom_domain'] ?? '')) ?: null,
+            'timezone'             => trim((string) ($data['timezone'] ?? 'UTC')),
+            'locale'               => trim((string) ($data['locale'] ?? 'english')),
+            'currency'             => trim((string) ($data['currency'] ?? 'USD')),
+            'storage_driver'       => trim((string) ($data['storage_driver'] ?? 'local')),
+            'storage_path'         => trim((string) ($data['storage_path'] ?? '')),
+            'expires_at'           => !empty($data['expires_at']) ? $data['expires_at'] . ' 23:59:59' : null,
+            'updated_at'           => $now,
+            'updated_by'           => get_staff_user_id() ?: null,
+        ];
+
+        if ($id) {
+            $current = $this->get_tenant($id);
+            if (!$current) {
+                return ['success' => false, 'message' => 'Tenant not found.'];
+            }
+
+            if ($payload['db_name'] === '') {
+                $payload['db_name'] = trim((string) ($current['db_name'] ?? ''));
+            }
+            if ($payload['db_name'] === '') {
+                $payload['db_name'] = $this->generateTenantDatabaseName($tenantCode, (int) $id, $payload['subdomain']);
+            }
+
+            if ($payload['db_user'] === '') {
+                $payload['db_user'] = $current['db_user'];
+            }
+
+            if ($payload['db_password_encrypted'] === null) {
+                $payload['db_password_encrypted'] = $current['db_password_encrypted'];
+            }
+
+            $payload = $this->normalizeTenantStateOnSave($payload, $current);
+
+            $planChanged = false;
+            $newPlanId = !empty($payload['plan_id']) ? (int) $payload['plan_id'] : null;
+            $oldPlanId = !empty($current['plan_id']) ? (int) $current['plan_id'] : null;
+            if ($newPlanId !== $oldPlanId) {
+                $planChanged = true;
+            }
+
+            $this->db->where('id', (int) $id)->update(db_prefix() . 'kt_saas_tenants', $payload);
+
+            if ($planChanged) {
+                if ($newPlanId) {
+                    $newPlan = $this->get_plan($newPlanId);
+                    if ($newPlan) {
+                        $activeSub = $this->get_current_subscription((int) $id);
+
+                        $subStatus = ((int) ($newPlan['trial_days'] ?? 0) > 0) ? 'trial' : 'active';
+                        $trialEndsAt = ((int) ($newPlan['trial_days'] ?? 0) > 0) ? date('Y-m-d 23:59:59', strtotime('+' . (int) $newPlan['trial_days'] . ' days')) : null;
+                        $timeline = $this->buildSubscriptionTimeline($newPlan, $subStatus, new DateTimeImmutable($now));
+
+                        $subPayload = [
+                            'plan_id'                 => $newPlanId,
+                            'status'                  => $subStatus,
+                            'billing_cycle'           => $newPlan['billing_cycle'] ?? 'monthly',
+                            'trial_ends_at'           => $trialEndsAt,
+                            'current_period_start_at' => $timeline['current_period_start_at'],
+                            'current_period_end_at'   => $timeline['current_period_end_at'],
+                            'next_billing_at'         => $timeline['next_billing_at'],
+                            'grace_ends_at'           => null,
+                            'updated_at'              => $now,
+                        ];
+
+                        if ($activeSub) {
+                            $this->db->where('id', (int) $activeSub['id'])->update(db_prefix() . 'kt_saas_subscriptions', $subPayload);
+                            $this->log_activity('subscription.updated', 'info', [
+                                'subscription_id' => (int) $activeSub['id'],
+                                'tenant_id'       => (int) $id,
+                                'plan_id'         => $newPlanId,
+                                'reason'          => 'tenant_plan_changed_by_admin',
+                            ], (int) $id);
+                        } else {
+                            $subPayload['tenant_id']  = (int) $id;
+                            $subPayload['started_at'] = $now;
+                            $subPayload['created_at'] = $now;
+                            $subPayload['created_by'] = get_staff_user_id() ?: null;
+                            $subPayload['auto_renew'] = 1;
+                            $this->db->insert(db_prefix() . 'kt_saas_subscriptions', $subPayload);
+                        }
+                    }
+                } else {
+                    $this->db->where('tenant_id', (int) $id)
+                        ->where('deleted_at IS NULL', null, false)
+                        ->update(db_prefix() . 'kt_saas_subscriptions', [
+                            'deleted_at' => $now,
+                            'deleted_by' => get_staff_user_id() ?: null,
+                        ]);
+                }
+            }
+
+            $this->sync_tenant_domains((int) $id, $payload['subdomain'], $payload['custom_domain']);
+            $this->sync_tenant_module_registry((int) $id);
+            $this->log_activity('tenant.updated', 'info', [
+                'tenant_id'   => (int) $id,
+                'tenant_code' => $tenantCode,
+            ], (int) $id);
+            return ['success' => true, 'id' => (int) $id, 'created' => false];
+        }
+
+        $payload['created_at'] = $now;
+        $payload['created_by'] = get_staff_user_id() ?: null;
+        $payload['provisioning_status'] = 'queued';
+        $payload = $this->normalizeTenantStateOnSave($payload);
+
+        $this->db->insert(db_prefix() . 'kt_saas_tenants', $payload);
+        $tenantId = (int) $this->db->insert_id();
+
+        if ($payload['db_name'] === '') {
+            $payload['db_name'] = $this->generateTenantDatabaseName($tenantCode, $tenantId, $payload['subdomain']);
+            $this->db->where('id', $tenantId)->update(db_prefix() . 'kt_saas_tenants', [
+                'db_name'    => $payload['db_name'],
+                'updated_at' => $now,
+                'updated_by' => get_staff_user_id() ?: null,
+            ]);
+        }
+
+        $this->sync_tenant_domains($tenantId, $payload['subdomain'], $payload['custom_domain']);
+        $this->ensure_tenant_subscription($tenantId, $payload['plan_id']);
+        $this->sync_tenant_module_registry($tenantId);
+
+        $this->create_provision_job($tenantId, 'provision_tenant', [
+            'tenant_id' => $tenantId,
+            'tenant_code' => $tenantCode,
+        ]);
+
+        $this->log_activity('tenant.created', 'info', [
+            'tenant_id'   => $tenantId,
+            'tenant_code' => $tenantCode,
+            'company_name'=> $companyName,
+        ], $tenantId);
+
+        return ['success' => true, 'id' => $tenantId, 'created' => true];
+    }
+
+    public function set_tenant_status($id, $status)
+    {
+        $tenant = $this->get_tenant($id);
+        if (!$tenant) {
+            return false;
+        }
+
+        $payload = [
+            'status'     => $status,
+            'updated_at' => date('Y-m-d H:i:s'),
+            'updated_by' => get_staff_user_id() ?: null,
+        ];
+
+        if ($status === 'suspended') {
+            $payload['suspended_at'] = date('Y-m-d H:i:s');
+        }
+        if ($status === 'terminated') {
+            $payload['terminated_at'] = date('Y-m-d H:i:s');
+        }
+
+        $this->db->where('id', (int) $id)->update(db_prefix() . 'kt_saas_tenants', $payload);
+        $this->log_activity('tenant.status_changed', 'warning', [
+            'tenant_id'   => (int) $id,
+            'tenant_code' => $tenant['tenant_code'],
+            'status'      => $status,
+        ], (int) $id);
+        return true;
+    }
+
+    public function archive_tenant($id)
+    {
+        $tenant = $this->get_tenant($id);
+        if (!$tenant) {
+            return false;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->where('id', (int) $id)->update(db_prefix() . 'kt_saas_tenants', [
+            'status'     => 'archived',
+            'deleted_at' => $now,
+            'deleted_by' => get_staff_user_id() ?: null,
+            'updated_at' => $now,
+            'updated_by' => get_staff_user_id() ?: null,
+        ]);
+        $this->log_activity('tenant.archived', 'warning', [
+            'tenant_id'   => (int) $id,
+            'tenant_code' => $tenant['tenant_code'],
+        ], (int) $id);
+        return true;
+    }
+
+    public function get_plans()
+    {
+        return $this->landlord_db()->where('deleted_at IS NULL', null, false)->order_by('price', 'asc')->get(db_prefix() . 'kt_saas_plans')->result_array();
+    }
+
+    public function get_plan($id)
+    {
+        return $this->landlord_db()->where('id', (int) $id)->where('deleted_at IS NULL', null, false)->get(db_prefix() . 'kt_saas_plans')->row_array();
+    }
+
+    public function save_plan($data, $id = null)
+    {
+        $planCode = strtolower(trim((string) ($data['plan_code'] ?? '')));
+        $planName = trim((string) ($data['plan_name'] ?? ''));
+        if ($planCode === '' || $planName === '') {
+            return ['success' => false, 'message' => 'Plan code and plan name are required.'];
+        }
+
+        if ($this->planCodeExists($planCode, $id)) {
+            return ['success' => false, 'message' => 'Plan code already exists.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $payload = [
+            'plan_code'                => $planCode,
+            'plan_name'                => $planName,
+            'billing_cycle'            => trim((string) ($data['billing_cycle'] ?? 'monthly')),
+            'price'                    => (float) ($data['price'] ?? 0),
+            'setup_fee'                => (float) ($data['setup_fee'] ?? 0),
+            'currency'                 => trim((string) ($data['currency'] ?? 'USD')),
+            'trial_days'               => (int) ($data['trial_days'] ?? 0),
+            'grace_days'               => (int) ($data['grace_days'] ?? 0),
+            'is_public'                => isset($data['is_public']) ? 1 : 0,
+            'is_active'                => isset($data['is_active']) ? 1 : 0,
+            'module_json'              => $this->normalizeModuleJson($data['module_codes'] ?? ''),
+            'limit_staff'              => (int) ($data['limit_staff'] ?? 0),
+            'limit_clients'            => (int) ($data['limit_clients'] ?? 0),
+            'limit_storage_mb'         => (int) ($data['limit_storage_mb'] ?? 0),
+            'limit_invoices'           => (int) ($data['limit_invoices'] ?? 0),
+            'limit_projects'           => (int) ($data['limit_projects'] ?? 0),
+            'limit_api_requests_daily' => (int) ($data['limit_api_requests_daily'] ?? 0),
+            'limit_warehouses'         => (int) ($data['limit_warehouses'] ?? 0),
+            'limit_automations'        => (int) ($data['limit_automations'] ?? 0),
+            'limit_roles'              => (int) ($data['limit_roles'] ?? 0),
+            'limit_departments'        => (int) ($data['limit_departments'] ?? 0),
+            'limit_governance_viewers' => (int) ($data['limit_governance_viewers'] ?? 0),
+            'limit_governance_managers'=> (int) ($data['limit_governance_managers'] ?? 0),
+            'notes'                    => trim((string) ($data['notes'] ?? '')),
+            'updated_at'               => $now,
+            'updated_by'               => get_staff_user_id() ?: null,
+        ];
+
+        if ($id) {
+            $this->db->where('id', (int) $id)->update(db_prefix() . 'kt_saas_plans', $payload);
+            $this->sync_plan_features((int) $id, $payload['module_json'], $data['workspace_feature_keys'] ?? [], $data['integration_feature_keys'] ?? []);
+            $this->sync_all_tenant_module_registries((int) $id);
+            $this->log_activity('plan.updated', 'info', [
+                'plan_id'   => (int) $id,
+                'plan_code' => $planCode,
+            ]);
+            return ['success' => true, 'id' => (int) $id];
+        }
+
+        $payload['created_at'] = $now;
+        $payload['created_by'] = get_staff_user_id() ?: null;
+        $this->db->insert(db_prefix() . 'kt_saas_plans', $payload);
+
+        $planId = (int) $this->db->insert_id();
+        $this->sync_plan_features($planId, $payload['module_json'], $data['workspace_feature_keys'] ?? [], $data['integration_feature_keys'] ?? []);
+        $this->sync_all_tenant_module_registries($planId);
+        $this->log_activity('plan.created', 'info', [
+            'plan_id'   => $planId,
+            'plan_code' => $planCode,
+        ]);
+
+        return ['success' => true, 'id' => $planId];
+    }
+
+    protected function sync_plan_features($planId, $moduleJson, $workspaceFeatureKeys = [], $integrationFeatureKeys = [])
+    {
+        $db = $this->landlord_db();
+        $db->where('plan_id', $planId)->delete(db_prefix() . 'kt_saas_plan_features');
+        if ($moduleJson) {
+            $modules = json_decode($moduleJson, true);
+            if (is_array($modules)) {
+                foreach ($modules as $modName) {
+                    $db->insert(db_prefix() . 'kt_saas_plan_features', [
+                        'plan_id'     => $planId,
+                        'module_name' => $modName,
+                        'feature_key' => $modName . '.access',
+                        'is_enabled'  => 1,
+                        'created_at'  => date('Y-m-d H:i:s'),
+                    ]);
+                }
+            }
+        }
+
+        $catalog = $this->get_workspace_feature_catalog();
+        $workspaceFeatureKeys = is_array($workspaceFeatureKeys) ? $workspaceFeatureKeys : [];
+        $selectedWorkspaceFeatures = [];
+        foreach ($workspaceFeatureKeys as $featureKey) {
+            $featureKey = trim((string) $featureKey);
+            if ($featureKey !== '' && isset($catalog[$featureKey])) {
+                $selectedWorkspaceFeatures[$featureKey] = true;
+            }
+        }
+
+        foreach ($catalog as $featureKey => $meta) {
+            $db->insert(db_prefix() . 'kt_saas_plan_features', [
+                'plan_id'     => $planId,
+                'module_name' => (string) ($meta['module_name'] ?? 'workspace'),
+                'feature_key' => $featureKey,
+                'is_enabled'  => isset($selectedWorkspaceFeatures[$featureKey]) ? 1 : 0,
+                'created_at'  => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        $integrationCatalog = $this->get_integration_feature_catalog();
+        $integrationFeatureKeys = is_array($integrationFeatureKeys) ? $integrationFeatureKeys : [];
+        $selectedIntegrationFeatures = [];
+        foreach ($integrationFeatureKeys as $featureKey) {
+            $featureKey = trim((string) $featureKey);
+            if ($featureKey !== '' && isset($integrationCatalog[$featureKey])) {
+                $selectedIntegrationFeatures[$featureKey] = true;
+            }
+        }
+
+        foreach ($integrationCatalog as $featureKey => $meta) {
+            $db->insert(db_prefix() . 'kt_saas_plan_features', [
+                'plan_id'     => $planId,
+                'module_name' => (string) ($meta['module_name'] ?? ''),
+                'feature_key' => $featureKey,
+                'is_enabled'  => isset($selectedIntegrationFeatures[$featureKey]) ? 1 : 0,
+                'created_at'  => date('Y-m-d H:i:s'),
+            ]);
+        }
+    }
+
+    public function get_subscriptions()
+    {
+        return $this->landlord_db()
+            ->select('s.*, t.tenant_code, t.company_name, p.plan_name')
+            ->from(db_prefix() . 'kt_saas_subscriptions s')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = s.tenant_id', 'left')
+            ->join(db_prefix() . 'kt_saas_plans p', 'p.id = s.plan_id', 'left')
+            ->where('s.deleted_at IS NULL', null, false)
+            ->order_by('s.id', 'desc')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_subscription($id)
+    {
+        return $this->landlord_db()->where('id', (int) $id)->where('deleted_at IS NULL', null, false)->get(db_prefix() . 'kt_saas_subscriptions')->row_array();
+    }
+
+    public function save_subscription($data, $id = null)
+    {
+        $tenantId = (int) ($data['tenant_id'] ?? 0);
+        $planId = (int) ($data['plan_id'] ?? 0);
+        if (!$this->get_tenant($tenantId) || !$this->get_plan($planId)) {
+            return ['success' => false, 'message' => 'Tenant or plan is invalid.'];
+        }
+
+        $startedAt = !empty($data['started_at']) ? $data['started_at'] . ' 00:00:00' : date('Y-m-d 00:00:00');
+        $payload = [
+            'tenant_id'                => $tenantId,
+            'plan_id'                  => $planId,
+            'status'                   => trim((string) ($data['status'] ?? 'trial')),
+            'billing_cycle'            => trim((string) ($data['billing_cycle'] ?? 'monthly')),
+            'started_at'               => $startedAt,
+            'trial_ends_at'            => !empty($data['trial_ends_at']) ? $data['trial_ends_at'] . ' 23:59:59' : null,
+            'current_period_start_at'  => !empty($data['current_period_start_at']) ? $data['current_period_start_at'] . ' 00:00:00' : null,
+            'current_period_end_at'    => !empty($data['current_period_end_at']) ? $data['current_period_end_at'] . ' 23:59:59' : null,
+            'grace_ends_at'            => !empty($data['grace_ends_at']) ? $data['grace_ends_at'] . ' 23:59:59' : null,
+            'next_billing_at'          => !empty($data['next_billing_at']) ? $data['next_billing_at'] . ' 00:00:00' : null,
+            'auto_renew'               => isset($data['auto_renew']) ? 1 : 0,
+            'metadata_json'            => trim((string) ($data['metadata_json'] ?? '')) ?: null,
+            'updated_at'               => date('Y-m-d H:i:s'),
+            'updated_by'               => get_staff_user_id() ?: null,
+        ];
+
+        if ($id) {
+            $this->db->where('id', (int) $id)->update(db_prefix() . 'kt_saas_subscriptions', $payload);
+            $this->db->where('id', (int) $tenantId)->update(db_prefix() . 'kt_saas_tenants', [
+                'plan_id'    => $planId,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $this->sync_tenant_module_registry($tenantId);
+            $this->log_activity('subscription.updated', 'info', [
+                'subscription_id' => (int) $id,
+                'tenant_id'       => $tenantId,
+                'plan_id'         => $planId,
+            ], $tenantId);
+            return ['success' => true, 'id' => (int) $id];
+        }
+
+        $payload['created_at'] = date('Y-m-d H:i:s');
+        $payload['created_by'] = get_staff_user_id() ?: null;
+        $this->landlord_db()
+            ->where('tenant_id', $tenantId)
+            ->where('deleted_at IS NULL', null, false)
+            ->update(db_prefix() . 'kt_saas_subscriptions', [
+                'deleted_at' => date('Y-m-d H:i:s'),
+                'deleted_by' => get_staff_user_id() ?: null,
+                'updated_at' => date('Y-m-d H:i:s'),
+                'updated_by' => get_staff_user_id() ?: null,
+            ]);
+        $this->db->insert(db_prefix() . 'kt_saas_subscriptions', $payload);
+        $subscriptionId = (int) $this->db->insert_id();
+        $this->db->where('id', (int) $tenantId)->update(db_prefix() . 'kt_saas_tenants', [
+            'plan_id'    => $planId,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        $this->sync_tenant_module_registry($tenantId);
+        $this->log_activity('subscription.created', 'info', [
+            'subscription_id' => $subscriptionId,
+            'tenant_id'       => $tenantId,
+            'plan_id'         => $planId,
+        ], $tenantId);
+        return ['success' => true, 'id' => $subscriptionId];
+    }
+
+    public function get_invoices()
+    {
+        return $this->landlord_db()
+            ->select('i.*, t.tenant_code, t.company_name, t.subdomain, t.custom_domain, s.status as subscription_status, p.plan_name')
+            ->from(db_prefix() . 'kt_saas_invoices i')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = i.tenant_id', 'left')
+            ->join(db_prefix() . 'kt_saas_subscriptions s', 's.id = i.subscription_id', 'left')
+            ->join(db_prefix() . 'kt_saas_plans p', 'p.id = s.plan_id', 'left')
+            ->where('i.deleted_at IS NULL', null, false)
+            ->order_by('i.id', 'desc')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_invoice($id)
+    {
+        return $this->landlord_db()
+            ->select('i.*, t.tenant_code, t.company_name, t.subdomain, t.custom_domain, s.status as subscription_status, s.plan_id, p.plan_name')
+            ->from(db_prefix() . 'kt_saas_invoices i')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = i.tenant_id', 'left')
+            ->join(db_prefix() . 'kt_saas_subscriptions s', 's.id = i.subscription_id', 'left')
+            ->join(db_prefix() . 'kt_saas_plans p', 'p.id = s.plan_id', 'left')
+            ->where('i.id', (int) $id)
+            ->where('i.deleted_at IS NULL', null, false)
+            ->get()
+            ->row_array();
+    }
+
+    public function get_recent_invoices($limit = 20)
+    {
+        return $this->landlord_db()
+            ->select('i.*, t.tenant_code, t.company_name, t.subdomain, t.custom_domain')
+            ->from(db_prefix() . 'kt_saas_invoices i')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = i.tenant_id', 'left')
+            ->where('i.deleted_at IS NULL', null, false)
+            ->order_by('i.id', 'desc')
+            ->limit((int) $limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_overdue_invoices($limit = 100)
+    {
+        return $this->landlord_db()
+            ->select('i.*, t.tenant_code, t.company_name, t.subdomain, t.custom_domain')
+            ->from(db_prefix() . 'kt_saas_invoices i')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = i.tenant_id', 'left')
+            ->where('i.deleted_at IS NULL', null, false)
+            ->where_in('i.status', ['issued', 'pending_payment', 'partial', 'overdue'])
+            ->where('i.due_date IS NOT NULL', null, false)
+            ->where('i.due_date <', date('Y-m-d'))
+            ->order_by('i.id', 'asc')
+            ->limit((int) $limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_payments()
+    {
+        return $this->landlord_db()
+            ->select('p.*, i.invoice_number, t.tenant_code, t.company_name')
+            ->from(db_prefix() . 'kt_saas_payments p')
+            ->join(db_prefix() . 'kt_saas_invoices i', 'i.id = p.invoice_id', 'left')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = p.tenant_id', 'left')
+            ->where('p.deleted_at IS NULL', null, false)
+            ->order_by('p.id', 'desc')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_recent_payments($limit = 20)
+    {
+        return $this->landlord_db()
+            ->select('p.*, i.invoice_number, t.tenant_code, t.company_name')
+            ->from(db_prefix() . 'kt_saas_payments p')
+            ->join(db_prefix() . 'kt_saas_invoices i', 'i.id = p.invoice_id', 'left')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = p.tenant_id', 'left')
+            ->where('p.deleted_at IS NULL', null, false)
+            ->order_by('p.id', 'desc')
+            ->limit((int) $limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function update_invoice($invoiceId, array $payload)
+    {
+        $payload['updated_at'] = $payload['updated_at'] ?? date('Y-m-d H:i:s');
+        $payload['updated_by'] = array_key_exists('updated_by', $payload) ? $payload['updated_by'] : (get_staff_user_id() ?: null);
+
+        $this->landlord_db()->where('id', (int) $invoiceId)->update(db_prefix() . 'kt_saas_invoices', $payload);
+
+        return $this->landlord_db()->affected_rows() >= 0;
+    }
+
+    public function update_subscription($subscriptionId, array $payload)
+    {
+        $payload['updated_at'] = $payload['updated_at'] ?? date('Y-m-d H:i:s');
+        $payload['updated_by'] = array_key_exists('updated_by', $payload) ? $payload['updated_by'] : (get_staff_user_id() ?: null);
+
+        $this->landlord_db()->where('id', (int) $subscriptionId)->update(db_prefix() . 'kt_saas_subscriptions', $payload);
+
+        return $this->landlord_db()->affected_rows() >= 0;
+    }
+
+    public function update_tenant($tenantId, array $payload)
+    {
+        $payload['updated_at'] = $payload['updated_at'] ?? date('Y-m-d H:i:s');
+        $payload['updated_by'] = array_key_exists('updated_by', $payload) ? $payload['updated_by'] : (get_staff_user_id() ?: null);
+
+        $this->landlord_db()->where('id', (int) $tenantId)->update(db_prefix() . 'kt_saas_tenants', $payload);
+
+        return $this->landlord_db()->affected_rows() >= 0;
+    }
+
+    public function set_subscription_status($subscriptionId, $status)
+    {
+        $subscription = $this->get_subscription((int) $subscriptionId);
+        if (!$subscription) {
+            return false;
+        }
+
+        $status = trim((string) $status);
+        if (!array_key_exists($status, kt_saas_subscription_statuses())) {
+            return false;
+        }
+
+        $tenantId = (int) ($subscription['tenant_id'] ?? 0);
+        $this->update_subscription((int) $subscriptionId, ['status' => $status]);
+
+        if ($tenantId > 0) {
+            $tenantStatus = $status;
+            if ($status === 'cancelled' || $status === 'expired') {
+                $tenantStatus = 'suspended';
+            }
+            if (array_key_exists($tenantStatus, kt_saas_tenant_statuses())) {
+                $this->update_tenant($tenantId, ['status' => $tenantStatus]);
+            }
+            $this->sync_tenant_module_registry($tenantId);
+        }
+
+        $this->log_activity('subscription.status_changed', 'warning', [
+            'subscription_id' => (int) $subscriptionId,
+            'tenant_id'       => $tenantId ?: null,
+            'status'          => $status,
+        ], $tenantId ?: null);
+
+        return true;
+    }
+
+    public function create_payment(array $payload)
+    {
+        $now = date('Y-m-d H:i:s');
+        $paymentReference = trim((string) ($payload['payment_reference'] ?? ''));
+        if ($paymentReference !== '') {
+            $existing = $this->get_payment_by_reference($paymentReference);
+            if ($existing) {
+                return (int) $existing['id'];
+            }
+        }
+
+        $record = [
+            'tenant_id'             => (int) ($payload['tenant_id'] ?? 0),
+            'invoice_id'            => !empty($payload['invoice_id']) ? (int) $payload['invoice_id'] : null,
+            'payment_reference'     => $paymentReference,
+            'gateway'               => trim((string) ($payload['gateway'] ?? 'manual')),
+            'status'                => trim((string) ($payload['status'] ?? 'paid')),
+            'amount'                => (float) ($payload['amount'] ?? 0),
+            'currency'              => trim((string) ($payload['currency'] ?? 'USD')),
+            'gateway_payload_json'  => isset($payload['gateway_payload_json']) ? $payload['gateway_payload_json'] : null,
+            'paid_at'               => array_key_exists('paid_at', $payload) ? $payload['paid_at'] : (((string) ($payload['status'] ?? 'paid')) === 'paid' ? $now : null),
+            'failed_at'             => $payload['failed_at'] ?? null,
+            'created_at'            => $now,
+            'updated_at'            => $now,
+        ];
+
+        $this->landlord_db()->insert(db_prefix() . 'kt_saas_payments', $record);
+        return (int) $this->landlord_db()->insert_id();
+    }
+
+    public function get_payment_by_reference($paymentReference)
+    {
+        $paymentReference = trim((string) $paymentReference);
+        if ($paymentReference === '') {
+            return null;
+        }
+
+        return $this->landlord_db()
+            ->where('payment_reference', $paymentReference)
+            ->where('deleted_at IS NULL', null, false)
+            ->get(db_prefix() . 'kt_saas_payments')
+            ->row_array();
+    }
+
+    public function get_domains()
+    {
+        return $this->db
+            ->select('d.*, t.tenant_code, t.company_name')
+            ->from(db_prefix() . 'kt_saas_domains d')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = d.tenant_id', 'left')
+            ->where('d.deleted_at IS NULL', null, false)
+            ->order_by('d.id', 'desc')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_domain($id)
+    {
+        return $this->db->where('id', (int) $id)->where('deleted_at IS NULL', null, false)->get(db_prefix() . 'kt_saas_domains')->row_array();
+    }
+
+    public function save_domain($data, $id = null)
+    {
+        $tenantId = (int) ($data['tenant_id'] ?? 0);
+        $domain = strtolower(trim((string) ($data['domain'] ?? '')));
+        $domainType = trim((string) ($data['domain_type'] ?? 'subdomain'));
+
+        if (!$this->get_tenant($tenantId) || $domain === '') {
+            return ['success' => false, 'message' => 'Tenant and domain are required.'];
+        }
+
+        if ($this->domainExists($domain, $id)) {
+            return ['success' => false, 'message' => 'Domain already exists.'];
+        }
+
+        $payload = [
+            'tenant_id'    => $tenantId,
+            'domain'       => $domain,
+            'domain_type'  => $domainType,
+            'is_primary'   => isset($data['is_primary']) ? 1 : 0,
+            'readiness_status' => trim((string) ($data['readiness_status'] ?? 'pending')),
+            'expected_target'  => trim((string) ($data['expected_target'] ?? '')) ?: null,
+            'ssl_status'   => trim((string) ($data['ssl_status'] ?? 'pending')),
+            'dns_status'   => trim((string) ($data['dns_status'] ?? 'pending')),
+            'last_checked_at' => !empty($data['last_checked_at']) ? $data['last_checked_at'] : null,
+            'verified_at'  => !empty($data['verified_at']) ? $data['verified_at'] . ' 00:00:00' : null,
+            'verification_message' => trim((string) ($data['verification_message'] ?? '')) ?: null,
+            'updated_at'   => date('Y-m-d H:i:s'),
+        ];
+
+        if ($payload['is_primary']) {
+            $this->db->where('tenant_id', $tenantId)->update(db_prefix() . 'kt_saas_domains', ['is_primary' => 0, 'updated_at' => date('Y-m-d H:i:s')]);
+        }
+
+        if ($id) {
+            $this->db->where('id', (int) $id)->update(db_prefix() . 'kt_saas_domains', $payload);
+            $this->log_activity('domain.updated', 'info', ['domain_id' => (int) $id, 'tenant_id' => $tenantId, 'domain' => $domain], $tenantId);
+            return ['success' => true, 'id' => (int) $id];
+        }
+
+        $payload['created_at'] = date('Y-m-d H:i:s');
+        $this->db->insert(db_prefix() . 'kt_saas_domains', $payload);
+        $domainId = (int) $this->db->insert_id();
+        $this->log_activity('domain.created', 'info', ['domain_id' => $domainId, 'tenant_id' => $tenantId, 'domain' => $domain], $tenantId);
+        return ['success' => true, 'id' => $domainId];
+    }
+
+    public function save_domain_verification($id, array $verification)
+    {
+        $domain = $this->get_domain($id);
+        if (!$domain) {
+            return false;
+        }
+
+        $payload = [
+            'readiness_status' => trim((string) ($verification['readiness_status'] ?? $domain['readiness_status'] ?? 'pending')),
+            'expected_target'  => trim((string) ($verification['expected_target'] ?? $domain['expected_target'] ?? '')) ?: null,
+            'dns_status'  => trim((string) ($verification['dns_status'] ?? $domain['dns_status'])),
+            'ssl_status'  => trim((string) ($verification['ssl_status'] ?? $domain['ssl_status'])),
+            'last_checked_at' => !empty($verification['checked_at']) ? $verification['checked_at'] : date('Y-m-d H:i:s'),
+            'verified_at' => !empty($verification['verified_at']) ? $verification['verified_at'] : null,
+            'dns_records_json' => isset($verification['dns_records']) ? json_encode($verification['dns_records'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : ($domain['dns_records_json'] ?? null),
+            'ssl_details_json' => isset($verification['ssl_details']) ? json_encode($verification['ssl_details'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : ($domain['ssl_details_json'] ?? null),
+            'verification_message' => trim((string) ($verification['message'] ?? '')) ?: null,
+            'updated_at'  => date('Y-m-d H:i:s'),
+        ];
+
+        $this->db->where('id', (int) $id)->update(db_prefix() . 'kt_saas_domains', $payload);
+
+        $this->log_activity('domain.verified', !empty($verification['success']) ? 'info' : 'warning', [
+            'domain_id'     => (int) $id,
+            'tenant_id'     => (int) $domain['tenant_id'],
+            'domain'        => $domain['domain'],
+            'readiness_status' => $payload['readiness_status'],
+            'expected_target' => $payload['expected_target'],
+            'dns_status'    => $payload['dns_status'],
+            'ssl_status'    => $payload['ssl_status'],
+            'resolved_ips'  => $verification['resolved_ips'] ?? [],
+            'expected_ips'  => $verification['expected_ips'] ?? [],
+            'dns_records'   => $verification['dns_records'] ?? [],
+            'ssl_details'   => $verification['ssl_details'] ?? [],
+            'message'       => $payload['verification_message'],
+            'ssl_message'   => $verification['ssl_message'] ?? '',
+            'checked_at'    => $verification['checked_at'] ?? date('Y-m-d H:i:s'),
+        ], (int) $domain['tenant_id']);
+
+        return true;
+    }
+
+    public function get_domains_needing_verification($limit = 50, $staleHours = 12)
+    {
+        $threshold = date('Y-m-d H:i:s', strtotime('-' . max(1, (int) $staleHours) . ' hours'));
+
+        return $this->db
+            ->select('d.*, t.tenant_code, t.company_name')
+            ->from(db_prefix() . 'kt_saas_domains d')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = d.tenant_id', 'left')
+            ->where('d.deleted_at IS NULL', null, false)
+            ->group_start()
+                ->where('d.last_checked_at IS NULL', null, false)
+                ->or_where('d.last_checked_at <', $threshold)
+                ->or_where_in('d.readiness_status', ['pending', 'dns_pending', 'ssl_pending', 'attention'])
+            ->group_end()
+            ->order_by('d.id', 'asc')
+            ->limit(max(1, (int) $limit))
+            ->get()
+            ->result_array();
+    }
+
+    public function get_provision_jobs()
+    {
+        $this->db->select('j.*, t.tenant_code, t.company_name');
+        $this->db->from(db_prefix() . 'kt_saas_provision_jobs j');
+        $this->db->join(db_prefix() . 'kt_saas_tenants t', 't.id = j.tenant_id', 'left');
+        $this->db->order_by('j.id', 'desc');
+        return $this->db->get()->result_array();
+    }
+
+    public function create_provision_job($tenantId, $jobType, array $payload)
+    {
+        $now = date('Y-m-d H:i:s');
+        $existing = $this->db
+            ->where('tenant_id', $tenantId ?: null)
+            ->where('job_type', $jobType)
+            ->where_in('status', ['queued', 'running'])
+            ->order_by('id', 'desc')
+            ->get(db_prefix() . 'kt_saas_provision_jobs')
+            ->row_array();
+
+        if ($existing) {
+            if ($tenantId) {
+                $this->db->where('id', (int) $tenantId)->update(db_prefix() . 'kt_saas_tenants', [
+                    'provisioning_status' => $existing['status'] === 'running' ? 'running' : 'queued',
+                    'updated_at'          => $now,
+                    'updated_by'          => get_staff_user_id() ?: null,
+                ]);
+            }
+
+            return (int) $existing['id'];
+        }
+
+        $this->db->insert(db_prefix() . 'kt_saas_provision_jobs', [
+            'tenant_id'     => $tenantId ?: null,
+            'job_type'      => $jobType,
+            'status'        => 'queued',
+            'attempts'      => 0,
+            'max_attempts'  => 5,
+            'payload_json'  => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'scheduled_at'  => $now,
+            'created_at'    => $now,
+            'updated_at'    => $now,
+        ]);
+
+        if ($tenantId) {
+            $this->db->where('id', (int) $tenantId)->update(db_prefix() . 'kt_saas_tenants', [
+                'provisioning_status' => 'queued',
+                'updated_at'          => $now,
+                'updated_by'          => get_staff_user_id() ?: null,
+            ]);
+        }
+
+        $jobId = (int) $this->db->insert_id();
+        $this->log_activity('provision.job_queued', 'info', [
+            'job_id'     => $jobId,
+            'tenant_id'  => $tenantId ?: null,
+            'job_type'   => $jobType,
+        ], $tenantId ?: null);
+
+        return $jobId;
+    }
+
+    public function retry_provision_job($jobId)
+    {
+        $job = $this->db->where('id', (int) $jobId)->get(db_prefix() . 'kt_saas_provision_jobs')->row_array();
+        if (!$job) {
+            return false;
+        }
+
+        $this->db->where('id', (int) $jobId)->update(db_prefix() . 'kt_saas_provision_jobs', [
+            'status'        => 'queued',
+            'error_message' => null,
+            'result_json'   => null,
+            'started_at'    => null,
+            'finished_at'   => null,
+            'scheduled_at'  => date('Y-m-d H:i:s'),
+            'updated_at'    => date('Y-m-d H:i:s'),
+        ]);
+
+        if (!empty($job['tenant_id'])) {
+            $this->db->where('id', (int) $job['tenant_id'])->update(db_prefix() . 'kt_saas_tenants', [
+                'provisioning_status' => 'queued',
+                'updated_at'          => date('Y-m-d H:i:s'),
+                'updated_by'          => get_staff_user_id() ?: null,
+            ]);
+        }
+
+        $this->log_activity('provision.job_requeued', 'warning', [
+            'job_id'    => (int) $jobId,
+            'tenant_id' => !empty($job['tenant_id']) ? (int) $job['tenant_id'] : null,
+        ], !empty($job['tenant_id']) ? (int) $job['tenant_id'] : null);
+
+        return true;
+    }
+
+    public function mark_provision_job_running($jobId)
+    {
+        $now = date('Y-m-d H:i:s');
+        $job = $this->db->where('id', (int) $jobId)->get(db_prefix() . 'kt_saas_provision_jobs')->row_array();
+        if (!$job) {
+            return null;
+        }
+
+        if (!in_array((string) $job['status'], ['queued', 'failed'], true)) {
+            return null;
+        }
+
+        $this->db->where('id', (int) $jobId)->update(db_prefix() . 'kt_saas_provision_jobs', [
+            'status'     => 'running',
+            'attempts'   => (int) $job['attempts'] + 1,
+            'started_at' => $now,
+            'finished_at'=> null,
+            'updated_at' => $now,
+        ]);
+
+        if (!empty($job['tenant_id'])) {
+            $this->db->where('id', (int) $job['tenant_id'])->update(db_prefix() . 'kt_saas_tenants', [
+                'provisioning_status' => 'running',
+                'last_provisioned_at' => $now,
+                'updated_at'          => $now,
+            ]);
+        }
+
+        $job['status'] = 'running';
+        $job['attempts'] = (int) $job['attempts'] + 1;
+        $job['started_at'] = $now;
+        return $job;
+    }
+
+    public function mark_provision_job_done($jobId, array $result = [])
+    {
+        $now = date('Y-m-d H:i:s');
+        $job = $this->db->where('id', (int) $jobId)->get(db_prefix() . 'kt_saas_provision_jobs')->row_array();
+        if (!$job) {
+            return false;
+        }
+
+        $tenantReady = true;
+        $tenantStatus = 'active';
+        if (!empty($job['tenant_id'])) {
+            $tenant = $this->get_tenant((int) $job['tenant_id']);
+            $tenantReady = $tenant ? $this->tenantConnectionMetadataReady($tenant) : false;
+            $tenantStatus = $tenantReady ? $this->normalizeTenantActiveState((int) $job['tenant_id']) : 'draft';
+        }
+
+        $this->db->where('id', (int) $jobId)->update(db_prefix() . 'kt_saas_provision_jobs', [
+            'status'      => $tenantReady ? 'done' : 'failed',
+            'error_message' => $tenantReady ? null : 'Provision job completed without valid tenant database metadata.',
+            'result_json' => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'finished_at' => $now,
+            'updated_at'  => $now,
+        ]);
+
+        if (!empty($job['tenant_id'])) {
+            $this->db->where('id', (int) $job['tenant_id'])->update(db_prefix() . 'kt_saas_tenants', [
+                'provisioning_status' => $tenantReady ? 'done' : 'failed',
+                'status'              => $tenantStatus,
+                'last_provisioned_at' => $now,
+                'updated_at'          => $now,
+            ]);
+        }
+
+        $this->log_activity($tenantReady ? 'provision.job_done' : 'provision.job_failed', $tenantReady ? 'info' : 'danger', [
+            'job_id'    => (int) $jobId,
+            'tenant_id' => !empty($job['tenant_id']) ? (int) $job['tenant_id'] : null,
+            'result'    => $result,
+            'tenant_ready' => $tenantReady,
+        ], !empty($job['tenant_id']) ? (int) $job['tenant_id'] : null);
+
+        return true;
+    }
+
+    public function mark_provision_job_failed($jobId, $errorMessage, array $result = [])
+    {
+        $now = date('Y-m-d H:i:s');
+        $job = $this->db->where('id', (int) $jobId)->get(db_prefix() . 'kt_saas_provision_jobs')->row_array();
+        if (!$job) {
+            return false;
+        }
+
+        $this->db->where('id', (int) $jobId)->update(db_prefix() . 'kt_saas_provision_jobs', [
+            'status'        => 'failed',
+            'error_message' => $errorMessage,
+            'result_json'   => json_encode($result, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'finished_at'   => $now,
+            'updated_at'    => $now,
+        ]);
+
+        if (!empty($job['tenant_id'])) {
+            $tenant = $this->get_tenant((int) $job['tenant_id']);
+            $tenantStatus = $tenant && !$this->tenantConnectionMetadataReady($tenant) ? 'draft' : (($tenant['status'] ?? 'draft'));
+            if (in_array($tenantStatus, ['active', 'trial', 'grace'], true)) {
+                $tenantStatus = 'draft';
+            }
+            $this->db->where('id', (int) $job['tenant_id'])->update(db_prefix() . 'kt_saas_tenants', [
+                'provisioning_status' => 'failed',
+                'status'              => $tenantStatus,
+                'updated_at'          => $now,
+            ]);
+        }
+
+        $this->log_activity('provision.job_failed', 'danger', [
+            'job_id'    => (int) $jobId,
+            'tenant_id' => !empty($job['tenant_id']) ? (int) $job['tenant_id'] : null,
+            'error'     => $errorMessage,
+        ], !empty($job['tenant_id']) ? (int) $job['tenant_id'] : null);
+
+        return true;
+    }
+
+    public function get_due_provision_jobs($limit = 20)
+    {
+        $now = date('Y-m-d H:i:s');
+
+        $this->db->where('status', 'queued');
+        $this->db->group_start();
+        $this->db->where('scheduled_at IS NULL', null, false);
+        $this->db->or_where('scheduled_at <=', $now);
+        $this->db->group_end();
+        $this->db->order_by('id', 'asc');
+        return $this->db->limit((int) $limit)->get(db_prefix() . 'kt_saas_provision_jobs')->result_array();
+    }
+
+    public function repair_provisioning_state_consistency()
+    {
+        $now = date('Y-m-d H:i:s');
+        $repairs = [
+            'jobs_done'        => 0,
+            'jobs_failed'      => 0,
+            'jobs_running'     => 0,
+            'jobs_queued'      => 0,
+            'tenants_failed'   => 0,
+            'tenants_draft'    => 0,
+            'tenants_active'   => 0,
+        ];
+
+        $jobs = $this->db->order_by('id', 'asc')->get(db_prefix() . 'kt_saas_provision_jobs')->result_array();
+        foreach ($jobs as $job) {
+            $jobId = (int) $job['id'];
+            $tenant = !empty($job['tenant_id']) ? $this->get_tenant((int) $job['tenant_id']) : null;
+            $tenantReady = $tenant ? $this->tenantConnectionMetadataReady($tenant) : false;
+            $resultJson = trim((string) ($job['result_json'] ?? ''));
+            $hasResult = $resultJson !== '' && $resultJson !== 'null';
+            $hasFinished = !empty($job['finished_at']);
+            $hasStarted = !empty($job['started_at']);
+            $status = (string) $job['status'];
+            $tenantHasCompletedJob = false;
+
+            if (!empty($job['tenant_id'])) {
+                $tenantHasCompletedJob = $this->db
+                    ->where('tenant_id', (int) $job['tenant_id'])
+                    ->where('status', 'done')
+                    ->where('id !=', $jobId)
+                    ->count_all_results(db_prefix() . 'kt_saas_provision_jobs') > 0;
+            }
+
+            $targetStatus = $status;
+            if (in_array($status, ['queued', 'running'], true) && $tenantReady && $tenantHasCompletedJob) {
+                $targetStatus = 'failed';
+            } elseif ($status === 'queued' && $hasFinished) {
+                $targetStatus = ($hasResult && $tenantReady) ? 'done' : 'failed';
+            } elseif ($status === 'queued' && $hasStarted && !$hasFinished) {
+                $targetStatus = 'running';
+            } elseif ($status === 'done' && !$tenantReady) {
+                $targetStatus = 'failed';
+            }
+
+            if ($targetStatus !== $status) {
+                $update = [
+                    'status'     => $targetStatus,
+                    'updated_at' => $now,
+                ];
+                if ($targetStatus === 'running') {
+                    $update['finished_at'] = null;
+                }
+                if ($targetStatus === 'failed' && empty($job['error_message'])) {
+                    $update['error_message'] = 'Repaired inconsistent provisioning job state.';
+                }
+
+                $this->db->where('id', $jobId)->update(db_prefix() . 'kt_saas_provision_jobs', $update);
+                $repairs['jobs_' . $targetStatus]++;
+            }
+        }
+
+        $tenants = $this->db->order_by('id', 'asc')->get(db_prefix() . 'kt_saas_tenants')->result_array();
+        foreach ($tenants as $tenant) {
+            $tenantId = (int) $tenant['id'];
+            $update = [];
+            if (trim((string) ($tenant['db_name'] ?? '')) === '') {
+                $update['db_name'] = $this->generateTenantDatabaseName((string) ($tenant['tenant_code'] ?? ''), $tenantId, $tenant['subdomain'] ?? null);
+                $tenant['db_name'] = $update['db_name'];
+            }
+
+            $tenantReady = $this->tenantConnectionMetadataReady($tenant);
+            $status = (string) $tenant['status'];
+            $provisioningStatus = (string) $tenant['provisioning_status'];
+
+            $openJob = $this->db
+                ->where('tenant_id', $tenantId)
+                ->where_in('status', ['queued', 'running'])
+                ->order_by('id', 'desc')
+                ->get(db_prefix() . 'kt_saas_provision_jobs')
+                ->row_array();
+
+            if (!$tenantReady && $provisioningStatus === 'done') {
+                $provisioningStatus = 'failed';
+            } elseif ($openJob) {
+                $provisioningStatus = (string) $openJob['status'] === 'running' ? 'running' : 'queued';
+            }
+
+            if ($provisioningStatus !== 'done' && in_array($status, ['active', 'trial', 'grace'], true)) {
+                $status = 'draft';
+            } elseif ($provisioningStatus === 'done' && $tenantReady) {
+                $status = $this->normalizeTenantActiveState($tenantId);
+            }
+
+            if ($provisioningStatus !== (string) $tenant['provisioning_status']) {
+                $update['provisioning_status'] = $provisioningStatus;
+            }
+            if ($status !== (string) $tenant['status']) {
+                $update['status'] = $status;
+            }
+
+            if (!empty($update)) {
+                $update['updated_at'] = $now;
+                $update['updated_by'] = get_staff_user_id() ?: null;
+                $this->db->where('id', $tenantId)->update(db_prefix() . 'kt_saas_tenants', $update);
+                if (($update['provisioning_status'] ?? null) === 'failed') {
+                    $repairs['tenants_failed']++;
+                }
+                if (($update['status'] ?? null) === 'draft') {
+                    $repairs['tenants_draft']++;
+                }
+                if (($update['status'] ?? null) === 'active') {
+                    $repairs['tenants_active']++;
+                }
+            }
+        }
+
+        $this->log_activity('provision.state_repaired', 'warning', $repairs);
+
+        return $repairs;
+    }
+
+    public function log_activity($eventKey, $severity = 'info', array $context = [], $tenantId = null)
+    {
+        $this->landlord_db()->insert(db_prefix() . 'kt_saas_activity_logs', [
+            'tenant_id'   => $tenantId ?: null,
+            'actor_type'  => is_staff_logged_in() ? 'staff' : 'system',
+            'actor_id'    => is_staff_logged_in() ? get_staff_user_id() : null,
+            'event_key'   => $eventKey,
+            'severity'    => $severity,
+            'ip_address'  => $this->input->ip_address(),
+            'user_agent'  => substr((string) $this->input->user_agent(), 0, 255),
+            'context_json'=> json_encode($context, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'created_at'  => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    private function sync_tenant_domains($tenantId, $subdomain = null, $customDomain = null)
+    {
+        $baseDomain = trim((string) kt_saas_get_option('kt_saas_base_domain', 'crm.local'));
+
+        if ($subdomain) {
+            $fullDomain = $subdomain;
+            if ($baseDomain !== '' && strpos($subdomain, '.') === false) {
+                $fullDomain = $subdomain . '.' . $baseDomain;
+            }
+            $this->upsert_domain_record($tenantId, $fullDomain, 'subdomain', 1);
+        }
+
+        if ($customDomain) {
+            $this->upsert_domain_record($tenantId, $customDomain, 'custom', empty($subdomain) ? 1 : 0);
+        }
+    }
+
+    private function upsert_domain_record($tenantId, $domain, $domainType, $isPrimary)
+    {
+        $existing = $this->db
+            ->where('tenant_id', (int) $tenantId)
+            ->where('domain', $domain)
+            ->where('deleted_at IS NULL', null, false)
+            ->get(db_prefix() . 'kt_saas_domains')
+            ->row_array();
+
+        if ($isPrimary) {
+            $this->db->where('tenant_id', (int) $tenantId)->update(db_prefix() . 'kt_saas_domains', [
+                'is_primary' => 0,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        $payload = [
+            'tenant_id'   => (int) $tenantId,
+            'domain'      => strtolower(trim((string) $domain)),
+            'domain_type' => $domainType,
+            'is_primary'  => $isPrimary ? 1 : 0,
+            'ssl_status'  => 'pending',
+            'dns_status'  => 'pending',
+            'updated_at'  => date('Y-m-d H:i:s'),
+        ];
+
+        if ($existing) {
+            $this->db->where('id', (int) $existing['id'])->update(db_prefix() . 'kt_saas_domains', $payload);
+            return (int) $existing['id'];
+        }
+
+        $payload['created_at'] = date('Y-m-d H:i:s');
+        $this->db->insert(db_prefix() . 'kt_saas_domains', $payload);
+        return (int) $this->db->insert_id();
+    }
+
+    private function ensure_tenant_subscription($tenantId, $planId)
+    {
+        if (!$planId) {
+            return;
+        }
+
+        if ($this->get_current_subscription((int) $tenantId)) {
+            return;
+        }
+
+        $plan = $this->get_plan($planId);
+        $status = ((int) ($plan['trial_days'] ?? 0) > 0) ? 'trial' : 'active';
+        $now = date('Y-m-d H:i:s');
+        $trialEndsAt = ((int) ($plan['trial_days'] ?? 0) > 0) ? date('Y-m-d 23:59:59', strtotime('+' . (int) $plan['trial_days'] . ' days')) : null;
+        $timeline = $this->buildSubscriptionTimeline($plan, $status, new DateTimeImmutable($now));
+
+        $this->db->insert(db_prefix() . 'kt_saas_subscriptions', [
+            'tenant_id'               => (int) $tenantId,
+            'plan_id'                 => (int) $planId,
+            'status'                  => $status,
+            'billing_cycle'           => $plan['billing_cycle'] ?? 'monthly',
+            'started_at'              => $now,
+            'trial_ends_at'           => $trialEndsAt,
+            'current_period_start_at' => $timeline['current_period_start_at'],
+            'current_period_end_at'   => $timeline['current_period_end_at'],
+            'next_billing_at'         => $timeline['next_billing_at'],
+            'auto_renew'              => 1,
+            'created_at'              => $now,
+            'updated_at'              => $now,
+            'created_by'              => get_staff_user_id() ?: null,
+        ]);
+    }
+
+    private function normalizeTenantActiveState($tenantId)
+    {
+        $tenant = $this->get_tenant($tenantId);
+        if (!$tenant) {
+            return 'draft';
+        }
+        if (in_array($tenant['status'], ['suspended', 'terminated', 'archived'], true)) {
+            return $tenant['status'];
+        }
+
+        $subscription = $this->get_current_subscription((int) $tenantId);
+
+        if (!$subscription) {
+            return 'active';
+        }
+
+        return in_array($subscription['status'], ['trial', 'grace'], true) ? $subscription['status'] : 'active';
+    }
+
+    public function get_current_subscription($tenantId)
+    {
+        $rows = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('deleted_at IS NULL', null, false)
+            ->order_by('id', 'desc')
+            ->get(db_prefix() . 'kt_saas_subscriptions')
+            ->result_array();
+
+        if (!$rows) {
+            return null;
+        }
+
+        usort($rows, function ($a, $b) {
+            $scoreA = $this->subscriptionPriorityScore($a);
+            $scoreB = $this->subscriptionPriorityScore($b);
+            if ($scoreA !== $scoreB) {
+                return $scoreB <=> $scoreA;
+            }
+
+            $dateA = strtotime((string) ($a['current_period_end_at'] ?: $a['trial_ends_at'] ?: $a['grace_ends_at'] ?: $a['updated_at'] ?: $a['created_at'] ?: $a['started_at'] ?: '1970-01-01 00:00:00'));
+            $dateB = strtotime((string) ($b['current_period_end_at'] ?: $b['trial_ends_at'] ?: $b['grace_ends_at'] ?: $b['updated_at'] ?: $b['created_at'] ?: $b['started_at'] ?: '1970-01-01 00:00:00'));
+            if ($dateA !== $dateB) {
+                return $dateB <=> $dateA;
+            }
+
+            return ((int) $b['id']) <=> ((int) $a['id']);
+        });
+
+        return $rows[0];
+    }
+
+    private function normalizeTenantStateOnSave(array $payload, array $current = [])
+    {
+        $merged = array_merge($current, $payload);
+        $status = trim((string) ($payload['status'] ?? ($current['status'] ?? 'draft')));
+        $provisioningStatus = trim((string) ($payload['provisioning_status'] ?? ($current['provisioning_status'] ?? 'queued')));
+
+        if (!$this->tenantConnectionMetadataReady($merged) && $provisioningStatus === 'done') {
+            $provisioningStatus = 'queued';
+        }
+
+        if ($provisioningStatus !== 'done' && in_array($status, ['active', 'trial', 'grace'], true)) {
+            $status = 'draft';
+        }
+
+        $payload['status'] = $status;
+        $payload['provisioning_status'] = $provisioningStatus;
+
+        return $payload;
+    }
+
+    private function buildSubscriptionTimeline(array $plan, $status, ?DateTimeImmutable $from = null)
+    {
+        $from = $from ?: new DateTimeImmutable(date('Y-m-d H:i:s'));
+        $cycle = trim((string) ($plan['billing_cycle'] ?? 'monthly'));
+
+        if ($status !== 'active') {
+            return [
+                'current_period_start_at' => null,
+                'current_period_end_at'   => null,
+                'next_billing_at'         => null,
+            ];
+        }
+
+        $end = $this->nextBillingDateForCycle($cycle, $from);
+
+        return [
+            'current_period_start_at' => $from->format('Y-m-d H:i:s'),
+            'current_period_end_at'   => $end->format('Y-m-d H:i:s'),
+            'next_billing_at'         => $end->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    private function nextBillingDateForCycle($cycle, DateTimeImmutable $from)
+    {
+        switch (trim((string) $cycle)) {
+            case 'yearly':
+                return $from->modify('+1 year');
+            case 'quarterly':
+                return $from->modify('+3 months');
+            case 'monthly':
+            default:
+                return $from->modify('+1 month');
+        }
+    }
+
+    private function subscriptionPriorityScore(array $subscription)
+    {
+        $status = trim((string) ($subscription['status'] ?? ''));
+        switch ($status) {
+            case 'active':
+                return 500;
+            case 'trial':
+                return 450;
+            case 'grace':
+                return 400;
+            case 'suspended':
+                return 300;
+            case 'cancelled':
+                return 200;
+            case 'terminated':
+                return 100;
+            default:
+                return 50;
+        }
+    }
+
+    private function tenantConnectionMetadataReady(array $tenant)
+    {
+        return trim((string) ($tenant['db_name'] ?? '')) !== ''
+            && trim((string) ($tenant['db_host'] ?? '')) !== ''
+            && trim((string) ($tenant['db_user'] ?? '')) !== '';
+    }
+
+    private function generateTenantDatabaseName($tenantCode, $tenantId, $subdomain = null)
+    {
+        $base = strtolower(trim((string) $subdomain));
+        if ($base === '') {
+            $base = strtolower(trim((string) $tenantCode));
+        }
+
+        $base = preg_replace('/[^a-z0-9]+/', '_', $base);
+        $base = trim((string) $base, '_');
+        if ($base === '') {
+            $base = 'tenant';
+        }
+
+        $name = APP_DB_NAME . '_tenant_' . $base . '_' . (int) $tenantId;
+        return substr($name, 0, 64);
+    }
+
+    private function sync_all_tenant_module_registries($planId = null)
+    {
+        $this->sync_module_catalog();
+
+        $this->landlord_db()
+            ->where('deleted_at IS NULL', null, false);
+        if ($planId !== null) {
+            $this->landlord_db()->where('plan_id', (int) $planId);
+        }
+
+        $tenants = $this->landlord_db()->get(db_prefix() . 'kt_saas_tenants')->result_array();
+        foreach ($tenants as $tenant) {
+            $this->sync_tenant_module_registry((int) $tenant['id'], $tenant);
+        }
+    }
+
+    private function sync_tenant_module_registry($tenantId, array $tenant = null)
+    {
+        $tenant = $tenant ?: $this->get_tenant((int) $tenantId);
+        if (!$tenant) {
+            return;
+        }
+
+        $this->sync_module_catalog();
+
+        $subscription = $this->get_current_subscription((int) $tenantId);
+        $plan = null;
+        if ($subscription) {
+            $plan = $this->get_plan((int) ($subscription['plan_id'] ?? 0));
+        }
+        if (!$plan && !empty($tenant['plan_id'])) {
+            $plan = $this->get_plan((int) $tenant['plan_id']);
+        }
+
+        $planId = (int) ($plan['id'] ?? 0);
+        $now = date('Y-m-d H:i:s');
+        $catalog = $this->get_module_catalog();
+
+        $planFeatures = [];
+        if ($planId > 0) {
+            $featureRows = $this->landlord_db()
+                ->where('plan_id', $planId)
+                ->get(db_prefix() . 'kt_saas_plan_features')
+                ->result_array();
+            foreach ($featureRows as $row) {
+                $planFeatures[$row['module_name']] = (int) $row['is_enabled'] === 1;
+            }
+        }
+
+        $overrideRows = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('feature_key LIKE', '%.access')
+            ->get(db_prefix() . 'kt_saas_tenant_entitlements')
+            ->result_array();
+        $overrides = [];
+        foreach ($overrideRows as $row) {
+            $overrides[$row['module_name']] = [
+                'enabled'    => (int) $row['is_enabled'] === 1,
+                'overridden' => (int) $row['overridden'] === 1,
+            ];
+        }
+
+        $existingRows = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('deleted_at IS NULL', null, false)
+            ->get(db_prefix() . 'kt_saas_modules')
+            ->result_array();
+        $existing = [];
+        foreach ($existingRows as $row) {
+            $existing[$row['module_name']] = $row;
+        }
+
+        $tenantRuntimeModules = [
+            KT_SAAS_MODULE => true,
+        ];
+
+        foreach ($catalog as $module) {
+            $moduleName = (string) $module['module_name'];
+            $globalActive = (int) ($module['is_global_active'] ?? 1) === 1;
+            $planAllowed = $planId > 0 ? !empty($planFeatures[$moduleName]) : false;
+            $override = $overrides[$moduleName] ?? null;
+            $status = 'disabled';
+            $source = 'plan';
+
+            if ($override && $override['overridden']) {
+                $status = $override['enabled'] && $globalActive ? 'enabled' : 'disabled';
+                $source = 'override';
+            } elseif ($globalActive && $planAllowed) {
+                $status = 'enabled';
+                $source = 'plan';
+            } elseif (!$globalActive) {
+                $status = 'disabled';
+                $source = 'catalog';
+            }
+
+            $payload = [
+                'tenant_id'        => (int) $tenantId,
+                'module_name'      => $moduleName,
+                'module_type'      => ((int) ($module['is_core'] ?? 0) === 1) ? 'core' : 'addon',
+                'status'           => $status,
+                'source'           => $source,
+                'price'            => 0.00,
+                'dependency_json'  => json_encode([], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                'notes'            => null,
+                'updated_at'       => $now,
+                'deleted_at'       => null,
+            ];
+            $tenantRuntimeModules[$moduleName] = $status === 'enabled';
+
+            if (!isset($existing[$moduleName])) {
+                $payload['created_at'] = $now;
+                $this->landlord_db()->insert(db_prefix() . 'kt_saas_modules', $payload);
+                continue;
+            }
+
+            $this->landlord_db()->where('id', (int) $existing[$moduleName]['id'])->update(db_prefix() . 'kt_saas_modules', $payload);
+        }
+
+        $this->sync_tenant_runtime_modules($tenant, $tenantRuntimeModules);
+    }
+
+    private function sync_tenant_runtime_modules(array $tenant, array $moduleStates)
+    {
+        $tenantDb = $this->connect_tenant_runtime_db($tenant);
+        if (!$tenantDb) {
+            return;
+        }
+
+        $modulesTable = db_prefix() . 'modules';
+        if (!$tenantDb->table_exists($modulesTable)) {
+            return;
+        }
+
+        $physicalModules = [];
+        foreach ($this->app_modules->get() as $module) {
+            $systemName = strtolower(trim((string) ($module['system_name'] ?? '')));
+            if ($systemName === '') {
+                continue;
+            }
+
+            $physicalModules[$systemName] = [
+                'module_name'       => $systemName,
+                'installed_version' => (string) ($module['headers']['version'] ?? '0.0.0'),
+            ];
+        }
+
+        if (!isset($physicalModules[KT_SAAS_MODULE])) {
+            $physicalModules[KT_SAAS_MODULE] = [
+                'module_name'       => KT_SAAS_MODULE,
+                'installed_version' => defined('KT_SAAS_VERSION') ? KT_SAAS_VERSION : '0.0.0',
+            ];
+        }
+
+        $existingRows = $tenantDb->get($modulesTable)->result_array();
+        $existing = [];
+        foreach ($existingRows as $row) {
+            $existing[strtolower((string) $row['module_name'])] = $row;
+        }
+
+        foreach ($physicalModules as $moduleName => $moduleData) {
+            $active = !empty($moduleStates[$moduleName]) ? 1 : 0;
+            $payload = [
+                'module_name'       => $moduleName,
+                'installed_version' => $moduleData['installed_version'],
+                'active'            => $active,
+            ];
+
+            if (isset($existing[$moduleName])) {
+                $tenantDb->where('module_name', $moduleName)->update($modulesTable, $payload);
+                continue;
+            }
+
+            $tenantDb->insert($modulesTable, $payload);
+        }
+
+        $this->ensure_tenant_module_schema($tenant, $tenantDb, $moduleStates);
+    }
+
+    private function ensure_tenant_module_schema(array $tenant, $tenantDb, array $moduleStates)
+    {
+        foreach (['goals', 'kt_inventory', 'kt_sepay'] as $moduleName) {
+            if (empty($moduleStates[$moduleName])) {
+                continue;
+            }
+
+            $this->run_tenant_module_installer($tenant, $tenantDb, $moduleName);
+        }
+    }
+
+    private function run_tenant_module_installer(array $tenant, $tenantDb, $moduleName)
+    {
+        $moduleName = strtolower(trim((string) $moduleName));
+        if ($moduleName === '') {
+            return;
+        }
+
+        $installPath = module_dir_path($moduleName, 'install.php');
+        if (!file_exists($installPath)) {
+            return;
+        }
+
+        $CI = &get_instance();
+        $originalDb = $CI->db;
+        $originalModelDb = $this->db;
+
+        $CI->db = $tenantDb;
+        $this->db = $tenantDb;
+
+        try {
+            if ($moduleName === 'kt_sepay') {
+                require_once $installPath;
+                if (function_exists('kt_sepay_run_install')) {
+                    kt_sepay_run_install();
+                }
+            } else {
+                include $installPath;
+            }
+        } catch (Throwable $e) {
+            log_message(
+                'error',
+                'KT SaaS tenant module installer failed for tenant [' . ($tenant['tenant_code'] ?? 'unknown') . '] module [' . $moduleName . ']: ' . $e->getMessage()
+            );
+        }
+
+        $CI->db = $originalDb;
+        $this->db = $originalModelDb;
+    }
+
+    private function connect_tenant_runtime_db(array $tenant)
+    {
+        $dbName = trim((string) ($tenant['db_name'] ?? ''));
+        $dbHost = trim((string) ($tenant['db_host'] ?? ''));
+        $dbUser = trim((string) ($tenant['db_user'] ?? ''));
+        $dbPort = trim((string) ($tenant['db_port'] ?? '3306'));
+        $encryptedPassword = $tenant['db_password_encrypted'] ?? null;
+
+        if ($dbName === '' || $dbHost === '' || $dbUser === '' || empty($encryptedPassword)) {
+            return null;
+        }
+
+        if (!isset($this->encryption)) {
+            $this->load->library('encryption');
+        }
+
+        $password = $this->encryption->decrypt($encryptedPassword);
+        if ($password === false) {
+            return null;
+        }
+
+        $config = [
+            'dsn'          => '',
+            'hostname'     => $dbHost,
+            'username'     => $dbUser,
+            'password'     => $password,
+            'database'     => $dbName,
+            'dbdriver'     => defined('APP_DB_DRIVER') ? APP_DB_DRIVER : 'mysqli',
+            'dbprefix'     => db_prefix(),
+            'pconnect'     => false,
+            'db_debug'     => false,
+            'cache_on'     => false,
+            'cachedir'     => '',
+            'char_set'     => defined('APP_DB_CHARSET') ? APP_DB_CHARSET : 'utf8',
+            'dbcollat'     => defined('APP_DB_COLLATION') ? APP_DB_COLLATION : 'utf8_general_ci',
+            'swap_pre'     => '',
+            'encrypt'      => false,
+            'compress'     => false,
+            'stricton'     => false,
+            'failover'     => [],
+            'save_queries' => false,
+            'port'         => $dbPort,
+        ];
+
+        try {
+            $tenantDb = $this->load->database($config, true);
+            $tenantDb->initialize();
+            return $tenantDb;
+        } catch (Throwable $e) {
+            log_message('error', 'KT SaaS tenant module sync DB connection failed for tenant [' . ($tenant['tenant_code'] ?? 'unknown') . ']: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    public function save_settings($data)
+    {
+        update_option('kt_saas_base_domain', trim((string) ($data['kt_saas_base_domain'] ?? '')));
+        update_option('kt_saas_default_db_host', trim((string) ($data['kt_saas_default_db_host'] ?? '127.0.0.1')));
+        update_option('kt_saas_default_db_port', trim((string) ($data['kt_saas_default_db_port'] ?? '3306')));
+        update_option('kt_saas_default_locale', trim((string) ($data['kt_saas_default_locale'] ?? 'english')));
+        update_option('kt_saas_default_timezone', trim((string) ($data['kt_saas_default_timezone'] ?? 'UTC')));
+        update_option('kt_saas_default_currency', trim((string) ($data['kt_saas_default_currency'] ?? 'USD')));
+        update_option('kt_saas_default_storage_driver', trim((string) ($data['kt_saas_default_storage_driver'] ?? 'local')));
+        update_option('kt_saas_queue_mode', trim((string) ($data['kt_saas_queue_mode'] ?? 'database')));
+        update_option('kt_saas_auto_create_db_user', isset($data['kt_saas_auto_create_db_user']) ? '1' : '0');
+        update_option('kt_saas_db_user_prefix', trim((string) ($data['kt_saas_db_user_prefix'] ?? 'tenant_')));
+        update_option('kt_saas_default_db_client_hosts', trim((string) ($data['kt_saas_default_db_client_hosts'] ?? 'localhost,127.0.0.1')));
+        update_option('kt_saas_allow_custom_domains', isset($data['kt_saas_allow_custom_domains']) ? '1' : '0');
+        update_option('kt_saas_runtime_enabled', isset($data['kt_saas_runtime_enabled']) ? '1' : '0');
+        update_option('kt_saas_landlord_host', trim((string) ($data['kt_saas_landlord_host'] ?? parse_url(APP_BASE_URL, PHP_URL_HOST))));
+        update_option('kt_saas_usage_retention_days', (string) max((int) ($data['kt_saas_usage_retention_days'] ?? 90), 7));
+        update_option('kt_saas_backup_retention_days', (string) max((int) ($data['kt_saas_backup_retention_days'] ?? 30), 1));
+        update_option('kt_saas_billing_due_days', (string) max((int) ($data['kt_saas_billing_due_days'] ?? 7), 0));
+        update_option('kt_saas_billing_dunning_interval_days', (string) max((int) ($data['kt_saas_billing_dunning_interval_days'] ?? 2), 1));
+        update_option('kt_saas_billing_dunning_max_attempts', (string) max((int) ($data['kt_saas_billing_dunning_max_attempts'] ?? 3), 1));
+        update_option('kt_saas_payment_link_secret', trim((string) ($data['kt_saas_payment_link_secret'] ?? APP_ENC_KEY)));
+        update_option('kt_saas_payment_webhook_secret', trim((string) ($data['kt_saas_payment_webhook_secret'] ?? APP_ENC_KEY)));
+        update_option('kt_saas_overage_rate_json', trim((string) ($data['kt_saas_overage_rate_json'] ?? '')));
+    }
+
+    private function tenantCodeExists($tenantCode, $excludeId = null)
+    {
+        $this->db->where('tenant_code', $tenantCode);
+        if ($excludeId) {
+            $this->db->where('id !=', (int) $excludeId);
+        }
+        return $this->db->count_all_results(db_prefix() . 'kt_saas_tenants') > 0;
+    }
+
+    private function subdomainExists($subdomain, $excludeId = null)
+    {
+        $this->db->where('subdomain', $subdomain);
+        if ($excludeId) {
+            $this->db->where('id !=', (int) $excludeId);
+        }
+        return $this->db->count_all_results(db_prefix() . 'kt_saas_tenants') > 0;
+    }
+
+    private function planCodeExists($planCode, $excludeId = null)
+    {
+        $this->db->where('plan_code', $planCode);
+        if ($excludeId) {
+            $this->db->where('id !=', (int) $excludeId);
+        }
+        return $this->db->count_all_results(db_prefix() . 'kt_saas_plans') > 0;
+    }
+
+    private function domainExists($domain, $excludeId = null)
+    {
+        $this->db->where('domain', $domain);
+        if ($excludeId) {
+            $this->db->where('id !=', (int) $excludeId);
+        }
+        return $this->db->count_all_results(db_prefix() . 'kt_saas_domains') > 0;
+    }
+
+    private function encryptNullable($value)
+    {
+        if ($value === '') {
+            return null;
+        }
+
+        return $this->encryption->encrypt($value);
+    }
+
+    private function normalizeModuleJson($moduleCodes)
+    {
+        if (is_array($moduleCodes)) {
+            $parts = array_values(array_filter(array_map('trim', $moduleCodes)));
+            return json_encode($parts, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        }
+        $parts = preg_split('/[\s,]+/', trim((string) $moduleCodes));
+        $parts = array_values(array_filter(array_map('trim', $parts)));
+
+        return json_encode($parts, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+
+    private function safe_count($table)
+    {
+        $full = db_prefix() . $table;
+        if (!$this->db->table_exists($full)) {
+            return 0;
+        }
+
+        return (int) $this->db->count_all_results($full);
+    }
+
+    private function landlord_db()
+    {
+        $landlordDb = $this->config->item('kt_saas_landlord_db');
+
+        return $landlordDb ?: $this->db;
+    }
+
+    private function tenant_option($name, $default = '')
+    {
+        $row = $this->db
+            ->select('value')
+            ->where('name', (string) $name)
+            ->get(db_prefix() . 'options')
+            ->row_array();
+
+        if (!is_array($row)) {
+            return $default;
+        }
+
+        return (string) ($row['value'] ?? $default);
+    }
+
+    private function upsert_tenant_option($name, $value, $autoload = '1')
+    {
+        $existing = $this->db
+            ->select('id')
+            ->where('name', (string) $name)
+            ->get(db_prefix() . 'options')
+            ->row_array();
+
+        $payload = [
+            'value'    => (string) $value,
+            'autoload' => (string) $autoload,
+        ];
+
+        if (is_array($existing) && !empty($existing['id'])) {
+            $this->db->where('id', (int) $existing['id'])->update(db_prefix() . 'options', $payload);
+            return;
+        }
+
+        $payload['name'] = (string) $name;
+        $this->db->insert(db_prefix() . 'options', $payload);
+    }
+
+    private function find_landlord_tenant_row($tenantId)
+    {
+        $landlordDb = $this->config->item('kt_saas_landlord_db');
+        if (!$landlordDb) {
+            return null;
+        }
+
+        return $landlordDb
+            ->where('id', (int) $tenantId)
+            ->where('deleted_at IS NULL', null, false)
+            ->get(db_prefix() . 'kt_saas_tenants')
+            ->row_array();
+    }
+
+    private function normalizeWorkspaceStaffIds($staffIds)
+    {
+        if (!is_array($staffIds)) {
+            $staffIds = preg_split('/[\s,]+/', (string) $staffIds);
+        }
+
+        $activeStaff = [];
+        foreach ($this->get_active_tenant_staff_members() as $staff) {
+            $activeStaff[(int) ($staff['staffid'] ?? 0)] = true;
+        }
+
+        $allowed = [];
+        foreach ((array) $staffIds as $staffId) {
+            $staffId = (int) $staffId;
+            if ($staffId > 0 && isset($activeStaff[$staffId])) {
+                $allowed[$staffId] = $staffId;
+            }
+        }
+
+        return json_encode(array_values($allowed));
+    }
+
+    private function normalizeWorkspaceEmailList($value)
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+
+        $parts = preg_split('/[\r\n,;]+/', $value);
+        if (!is_array($parts)) {
+            return null;
+        }
+
+        $emails = [];
+        foreach ($parts as $email) {
+            $email = trim((string) $email);
+            if ($email === '') {
+                continue;
+            }
+
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return null;
+            }
+
+            $emails[strtolower($email)] = $email;
+        }
+
+        return implode(', ', array_values($emails));
+    }
+
+    private function processTenantBrandingUpload($fieldName, $prefix)
+    {
+        if (!isset($_FILES[$fieldName]['name']) || $_FILES[$fieldName]['name'] === '') {
+            return null;
+        }
+
+        if (!empty($_FILES[$fieldName]['error'])) {
+            return null;
+        }
+
+        $tmpFilePath = $_FILES[$fieldName]['tmp_name'] ?? '';
+        if ($tmpFilePath === '' || !is_uploaded_file($tmpFilePath)) {
+            return null;
+        }
+
+        $extension = strtolower((string) pathinfo((string) $_FILES[$fieldName]['name'], PATHINFO_EXTENSION));
+        $allowedExtensions = ['jpg', 'jpeg', 'png', 'svg', 'ico', 'webp'];
+        if (!in_array($extension, $allowedExtensions, true)) {
+            set_alert('warning', 'Branding image extension not allowed for ' . $fieldName . '.');
+            return null;
+        }
+
+        $path = rtrim(get_upload_path_by_type('company'), '/\\') . DIRECTORY_SEPARATOR;
+        _maybe_create_upload_path($path);
+
+        $existing = $this->tenant_option($fieldName, '');
+        if ($existing !== '') {
+            $existingPath = $path . $existing;
+            if (file_exists($existingPath)) {
+                @unlink($existingPath);
+            }
+        }
+
+        $filename = $prefix . '_' . time() . '.' . $extension;
+        $newFilePath = $path . $filename;
+        if (!move_uploaded_file($tmpFilePath, $newFilePath)) {
+            set_alert('warning', 'Không thể tải file branding cho workspace.');
+            return null;
+        }
+
+        $this->upsert_tenant_option($fieldName, $filename);
+
+        return $filename;
+    }
+
+    private function workspace_timezone_options()
+    {
+        $priority = ['UTC', 'Asia/Bangkok', 'Asia/Ho_Chi_Minh', 'Asia/Singapore', 'Europe/London'];
+        $timezones = [];
+
+        foreach ($priority as $timezone) {
+            $timezones[$timezone] = $timezone;
+        }
+
+        foreach (timezone_identifiers_list() as $timezone) {
+            $timezones[$timezone] = $timezone;
+        }
+
+        return array_values($timezones);
+    }
+
+    private function workspace_date_format_options()
+    {
+        return [
+            'Y-m-d|%Y-%m-%d' => '2026-05-27',
+            'd/m/Y|%d/%m/%Y' => '27/05/2026',
+            'm/d/Y|%m/%d/%Y' => '05/27/2026',
+            'd.m.Y|%d.%m.%Y' => '27.05.2026',
+        ];
+    }
+
+    private function workspace_number_format_options()
+    {
+        return [
+            '1' => 'Number based (000001)',
+            '2' => 'Year based (YYYY/000001)',
+            '3' => 'Short year based (000001-YY)',
+            '4' => 'Year/month based (000001/MM/YYYY)',
+        ];
+    }
+
+    private function normalizeWorkspacePrefix($value, $default)
+    {
+        $value = strtoupper(trim((string) $value));
+        $value = preg_replace('/[^A-Z0-9\\-_\\/]/', '', $value);
+        $value = substr((string) $value, 0, 20);
+
+        return $value !== '' ? $value : $default;
+    }
+
+    private function normalizeWorkspaceNumberFormat($value, array $options)
+    {
+        $value = (string) $value;
+
+        return array_key_exists($value, $options) ? $value : '1';
+    }
+
+    private function normalizeWorkspaceEnum($value, array $allowed, $default)
+    {
+        $value = trim((string) $value);
+
+        return in_array($value, $allowed, true) ? $value : (string) $default;
+    }
+}

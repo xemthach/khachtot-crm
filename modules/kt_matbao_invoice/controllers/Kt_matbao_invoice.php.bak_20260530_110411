@@ -1,0 +1,192 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+class Kt_matbao_invoice extends AdminController
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->helper(KT_MATBAO_INVOICE_MODULE . '/kt_matbao_invoice');
+        $this->load->model(KT_MATBAO_INVOICE_MODULE . '/Kt_matbao_invoice_model');
+        $this->load->library(KT_MATBAO_INVOICE_MODULE . '/Matbao_invoice_client');
+    }
+
+    private function guard($cap = 'matbao_invoice_view')
+    {
+        if (!kt_matbao_invoice_is_landlord_context()) {
+            access_denied('KT MatBao Invoice (landlord only)');
+        }
+        if (!kt_matbao_invoice_staff_can($cap)) {
+            access_denied('KT MatBao Invoice');
+        }
+    }
+
+    public function index()
+    {
+        $this->guard('matbao_invoice_view');
+        $data['title'] = _l('kt_matbao_invoice');
+        $data['records'] = $this->Kt_matbao_invoice_model->get_records(null, 20);
+        $data['logs'] = $this->Kt_matbao_invoice_model->get_logs(null, 20);
+        $data['webhook_logs'] = $this->Kt_matbao_invoice_model->get_webhook_logs(null, 20);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/overview', $data);
+    }
+
+    public function settings()
+    {
+        $this->guard('matbao_invoice_configure');
+        $settings = $this->Kt_matbao_invoice_model->get_settings(null, 'landlord');
+
+        if ($this->input->post()) {
+            $this->Kt_matbao_invoice_model->save_settings($this->input->post(), null, 'landlord');
+            set_alert('success', 'Saved MatBao settings.');
+            redirect(admin_url('kt_matbao_invoice/settings'));
+        }
+
+        $data['title'] = _l('kt_matbao_invoice_settings');
+        $data['settings'] = $settings;
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/settings', $data);
+    }
+
+    public function test_connection()
+    {
+        $this->guard('matbao_invoice_configure');
+        $this->requirePost();
+        $settings = $this->Kt_matbao_invoice_model->get_settings(null, 'landlord');
+        if (!$settings) {
+            set_alert('warning', 'No settings to test.');
+            redirect(admin_url('kt_matbao_invoice/settings'));
+        }
+
+        $result = $this->matbao_invoice_client->login($settings);
+        $status = !empty($result['success']) ? 'success' : 'error';
+        $message = !empty($result['success']) ? 'Connection success.' : ('Connection failed: ' . ($result['error'] ?: 'HTTP ' . (int) ($result['http_code'] ?? 0)));
+        $this->Kt_matbao_invoice_model->update_test_result((int) $settings['id'], $status, $message);
+        set_alert(!empty($result['success']) ? 'success' : 'warning', $message);
+        redirect(admin_url('kt_matbao_invoice/settings'));
+    }
+
+    public function templates()
+    {
+        $this->guard('matbao_invoice_view');
+        $data['title'] = _l('kt_matbao_invoice_templates');
+        $data['templates'] = $this->Kt_matbao_invoice_model->get_templates(null, 'landlord');
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/templates', $data);
+    }
+
+    public function sync_templates()
+    {
+        $this->guard('matbao_invoice_configure');
+        $this->requirePost();
+
+        $year = (int) ($this->input->post('year') ?: date('Y'));
+        $settings = $this->Kt_matbao_invoice_model->get_settings(null, 'landlord');
+        if (!$settings) {
+            set_alert('warning', 'No settings for template sync.');
+            redirect(admin_url('kt_matbao_invoice/settings'));
+        }
+
+        $result = $this->matbao_invoice_client->getTemplates($settings, $year);
+        if (empty($result['success'])) {
+            set_alert('warning', 'Template sync failed.');
+            redirect(admin_url('kt_matbao_invoice/templates'));
+        }
+
+        $rows = [];
+        $response = is_array($result['response']) ? $result['response'] : [];
+        if (isset($response['Data']) && is_array($response['Data'])) {
+            $rows = $response['Data'];
+        } elseif (isset($response['data']) && is_array($response['data'])) {
+            $rows = $response['data'];
+        } elseif (is_array($response)) {
+            $rows = $response;
+        }
+
+        $this->Kt_matbao_invoice_model->replace_templates(null, 'landlord', $year, $rows);
+        set_alert('success', 'Template sync success.');
+        redirect(admin_url('kt_matbao_invoice/templates'));
+    }
+
+    public function invoices()
+    {
+        $this->guard('matbao_invoice_view');
+        $data['title'] = _l('kt_matbao_invoice_invoices');
+        $data['records'] = $this->Kt_matbao_invoice_model->get_records(null, 200);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/invoices', $data);
+    }
+
+    public function logs()
+    {
+        $this->guard('matbao_invoice_logs');
+        $data['title'] = _l('kt_matbao_invoice_logs');
+        $data['logs'] = $this->Kt_matbao_invoice_model->get_logs(null, 300);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/logs', $data);
+    }
+
+    public function webhook_logs()
+    {
+        $this->guard('matbao_invoice_logs');
+        $data['title'] = _l('kt_matbao_invoice_webhook_logs');
+        $data['logs'] = $this->Kt_matbao_invoice_model->get_webhook_logs(null, 300);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/webhook_logs', $data);
+    }
+
+    public function plan_entitlements()
+    {
+        $this->guard('matbao_invoice_configure');
+        $data['title'] = _l('kt_matbao_invoice_plan_entitlements');
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/plan_entitlements', $data);
+    }
+
+    public function reseller_packages($serviceType = '')
+    {
+        $this->guard('matbao_invoice_configure');
+        if ($this->input->post()) {
+            $this->Kt_matbao_invoice_model->save_reseller_package($this->input->post(), $this->input->post('id'));
+            set_alert('success', 'Reseller package saved.');
+            redirect(admin_url('kt_matbao_invoice/reseller_packages'));
+        }
+
+        $data['title'] = 'Reseller Packages';
+        $data['service_type'] = $serviceType;
+        $data['packages'] = $this->Kt_matbao_invoice_model->get_reseller_packages($serviceType !== '' ? $serviceType : null);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/reseller_packages', $data);
+    }
+
+    public function orders()
+    {
+        $this->guard('matbao_invoice_view');
+        $data['title'] = 'SaaS Orders';
+        $data['orders'] = $this->Kt_matbao_invoice_model->get_orders();
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/orders', $data);
+    }
+
+    public function order_mark_paid($orderId)
+    {
+        $this->guard('matbao_invoice_configure');
+        $this->requirePost();
+        $result = $this->Kt_matbao_invoice_model->mark_order_paid_and_activate_addons((int) $orderId, 'manual');
+        if (!empty($result['success'])) {
+            set_alert('success', 'Order marked as paid. Add-ons moved to provisioning queue.');
+        } else {
+            set_alert('warning', (string) ($result['message'] ?? 'Unable to mark order paid.'));
+        }
+        redirect(admin_url('kt_matbao_invoice/orders'));
+    }
+
+    public function provisioning_queue()
+    {
+        $this->guard('matbao_invoice_view');
+        $data['title'] = 'Provider Provisioning Queue';
+        $data['jobs'] = $this->Kt_matbao_invoice_model->get_provider_jobs();
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/provisioning_queue', $data);
+    }
+
+    public function tenant_addons()
+    {
+        $this->guard('matbao_invoice_view');
+        $data['title'] = 'Tenant Add-ons';
+        $data['addons'] = $this->Kt_matbao_invoice_model->get_tenant_addons();
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/admin/tenant_addons', $data);
+    }
+}

@@ -1,0 +1,31 @@
+.kt-template-growth{margin:0;color:#111827;background:linear-gradient(180deg,#eef4ff 0,#fff 30%);font-family:var(--kt-font-sans)}
+.container{max-width:1140px;margin:0 auto;padding:0 16px}
+.topbar{padding:14px 0}
+.topbar-inner{display:flex;justify-content:space-between;align-items:center}
+.brand{font-weight:700;color:#0f172a;text-decoration:none}
+.menu{display:flex;align-items:center;gap:14px}
+.menu a{text-decoration:none;color:#374151}
+.btn-cta{background:var(--cta);color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;display:inline-block}
+.hero{padding:46px 0}
+.hero-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:20px}
+.hero h1{font-size:42px;line-height:1.15;margin:0 0 12px;font-family:var(--kt-font-heading)}
+.hero p{color:#4b5563}
+.panel{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px}
+.flow-nodes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.flow-nodes span{font-size:12px;background:#eef2ff;border:1px solid #c7d2fe;padding:6px 8px;border-radius:999px;text-align:center}
+.section{padding:34px 0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.card,.plan{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:16px}
+.feature-card{position:relative;padding-top:30px}
+.feature-card:before{content:'';position:absolute;left:16px;top:12px;width:8px;height:8px;border-radius:50%;background:var(--cta);box-shadow:14px 0 0 rgba(37,99,235,.35),28px 0 0 rgba(37,99,235,.2)}
+.addons{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.addon-card h3{margin-top:0}
+.addon-card p{margin:0;color:#4b5563}
+.pricing{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.price{font-size:28px;font-weight:800;line-height:1.1;font-family:var(--kt-font-heading);letter-spacing:-.01em}
+.plan.featured{border-color:#818cf8;box-shadow:0 8px 20px rgba(99,102,241,.12)}
+.badge-pop{display:inline-block;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:4px 8px;font-size:12px;margin-bottom:8px}
+.final-cta .panel{text-align:center;background:linear-gradient(120deg,#f8fbff,#f1f5ff)}
+.footer{padding:20px 0;border-top:1px solid #e5e7eb;color:#6b7280}
+@media (max-width:1024px){.grid,.addons,.pricing{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:768px){.hero-grid{grid-template-columns:1fr}.grid,.addons,.pricing,.flow-nodes{grid-template-columns:1fr}}

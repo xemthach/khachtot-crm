@@ -1,0 +1,54 @@
+.kt-inventory-card {
+    border: 1px solid #e6eaef;
+    border-radius: 8px;
+    padding: 16px;
+    background: #fff;
+    margin-bottom: 16px;
+}
+
+.kt-inventory-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.kt-inventory-summary .metric {
+    border: 1px solid #eef2f5;
+    border-radius: 8px;
+    padding: 14px;
+    background: #fbfcfd;
+}
+
+.kt-inventory-summary .metric .label {
+    display: block;
+    color: #6b7785;
+    font-size: 12px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
+.kt-inventory-summary .metric .value {
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.kt-inventory-table-actions .btn {
+    margin-right: 4px;
+    margin-bottom: 4px;
+}
+
+.kt-inventory-line-table td,
+.kt-inventory-line-table th {
+    vertical-align: middle !important;
+}
+
+#barcodes {
+    border-top: 1px solid #eef2f5;
+    padding-top: 12px;
+}
+
+input[data-kt-scan-input] {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}

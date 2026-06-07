@@ -1,0 +1,443 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+/*
+Module Name: KT SaaS
+Description: Clean-room multi-tenant SaaS foundation for Perfex CRM with landlord, subscription, billing, provisioning, and tenant control architecture.
+Version: 0.2.2
+Requires at least: 3.0.*
+Author: Internal Engineering
+*/
+
+define('KT_SAAS_MODULE', 'kt_saas');
+define('KT_SAAS_VERSION', '0.2.2');
+define('KT_SAAS_ASSETS_URL', module_dir_url(KT_SAAS_MODULE, 'assets/'));
+
+hooks()->add_action('admin_init', 'kt_saas_module_init');
+hooks()->add_action('app_admin_head', 'kt_saas_admin_head_assets');
+hooks()->add_action('app_admin_footer', 'kt_saas_admin_footer_assets');
+hooks()->add_action('after_cron_run', 'kt_saas_after_cron_run');
+
+register_activation_hook(KT_SAAS_MODULE, 'kt_saas_module_activation_hook');
+register_uninstall_hook(KT_SAAS_MODULE, 'kt_saas_module_uninstall_hook');
+register_language_files(KT_SAAS_MODULE, [KT_SAAS_MODULE]);
+
+function kt_saas_module_init()
+{
+    $CI = &get_instance();
+    $CI->load->helper(KT_SAAS_MODULE . '/kt_saas');
+
+    if (kt_saas_is_tenant_runtime()) {
+        hooks()->add_filter('sidebar_menu_items', 'kt_saas_filter_tenant_sidebar_menu_items');
+        hooks()->add_filter('setup_menu_items', 'kt_saas_filter_tenant_setup_menu_items');
+        hooks()->add_filter('show_setup_menu', 'kt_saas_filter_tenant_setup_menu_visibility');
+    }
+
+    kt_saas_maybe_upgrade_schema();
+    kt_saas_register_staff_capabilities();
+    kt_saas_register_menu_items();
+    kt_saas_register_runtime_hooks();
+}
+
+function kt_saas_module_activation_hook()
+{
+    require_once __DIR__ . '/install.php';
+}
+
+function kt_saas_module_uninstall_hook()
+{
+    require_once __DIR__ . '/uninstall.php';
+}
+
+function kt_saas_maybe_upgrade_schema()
+{
+    if (!function_exists('get_option') || !function_exists('update_option')) {
+        return;
+    }
+
+    if (!kt_saas_is_landlord_context()) {
+        return;
+    }
+
+    $current = (string) get_option('kt_saas_schema_version');
+    if ($current === KT_SAAS_VERSION) {
+        return;
+    }
+
+    require_once __DIR__ . '/upgrade.php';
+    kt_saas_run_upgrades();
+    update_option('kt_saas_schema_version', KT_SAAS_VERSION);
+}
+
+function kt_saas_after_cron_run()
+{
+    require_once __DIR__ . '/cron/Kt_saas_cron.php';
+    kt_saas_run_scheduled_jobs();
+}
+
+function kt_saas_register_staff_capabilities()
+{
+    register_staff_capabilities(
+        KT_SAAS_MODULE,
+        [
+            'capabilities' => [
+                'kt_saas_view'             => _l('kt_saas_permission_view'),
+                'kt_saas_manage_tenants'   => _l('kt_saas_permission_manage_tenants'),
+                'kt_saas_manage_plans'     => _l('kt_saas_permission_manage_plans'),
+                'kt_saas_manage_billing'   => _l('kt_saas_permission_manage_billing'),
+                'kt_saas_manage_domains'   => _l('kt_saas_permission_manage_domains'),
+                'kt_saas_manage_modules'   => _l('kt_saas_permission_manage_modules'),
+                'kt_saas_manage_usage'     => _l('kt_saas_permission_manage_usage'),
+                'kt_saas_manage_backups'   => _l('kt_saas_permission_manage_backups'),
+                'kt_saas_manage_settings'  => _l('kt_saas_permission_manage_settings'),
+                'kt_saas_run_provisioning' => _l('kt_saas_permission_run_provisioning'),
+            ],
+        ],
+        _l('kt_saas')
+    );
+}
+
+function kt_saas_register_menu_items()
+{
+    $CI = &get_instance();
+
+    if (kt_saas_is_tenant_runtime()) {
+        $canManageWorkspaceSettings = function_exists('kt_saas_can_manage_workspace_settings') && kt_saas_can_manage_workspace_settings();
+        $canViewWorkspaceGovernance = function_exists('kt_saas_can_view_workspace_governance') && kt_saas_can_view_workspace_governance();
+        if (!is_admin() && !$canManageWorkspaceSettings && !$canViewWorkspaceGovernance) {
+            return;
+        }
+
+        $CI->app_menu->add_sidebar_menu_item('kt_saas_account', [
+            'slug'     => 'kt_saas_account',
+            'name'     => _l('kt_saas_my_account'),
+            'icon'     => 'fa fa-credit-card',
+            'collapse' => true,
+            'position' => 31,
+        ]);
+
+        $tenantItems = [];
+        if (is_admin()) {
+            $tenantItems[] = ['slug' => 'kt_saas_account_subscription', 'name' => _l('kt_saas_my_subscription'), 'href' => admin_url('kt_saas/tenant_subscription')];
+            $tenantItems[] = ['slug' => 'kt_saas_account_billing', 'name' => _l('kt_saas_my_billing'), 'href' => admin_url('kt_saas/tenant_billing')];
+            $tenantItems[] = ['slug' => 'kt_saas_account_usage', 'name' => _l('kt_saas_my_usage'), 'href' => admin_url('kt_saas/tenant_usage')];
+        }
+        if ($canManageWorkspaceSettings) {
+            $tenantItems[] = ['slug' => 'kt_saas_account_settings', 'name' => _l('settings'), 'href' => admin_url('kt_saas/tenant_settings')];
+            $tenantItems[] = ['slug' => 'kt_saas_account_activity_logs', 'name' => _l('kt_saas_activity_logs'), 'href' => admin_url('kt_saas/tenant_activity_logs')];
+        }
+        if ($canViewWorkspaceGovernance) {
+            $tenantItems[] = ['slug' => 'kt_saas_account_governance', 'name' => _l('kt_saas_users_roles'), 'href' => admin_url('kt_saas/tenant_governance')];
+            if (function_exists('kt_saas_workspace_feature_allowed') && kt_saas_workspace_feature_allowed('workspace.departments.manage', true)) {
+                $tenantItems[] = ['slug' => 'kt_saas_account_departments', 'name' => _l('departments'), 'href' => admin_url('kt_saas/tenant_departments')];
+            }
+        }
+
+        $position = 1;
+        foreach ($tenantItems as $item) {
+            $item['position'] = $position++;
+            $CI->app_menu->add_sidebar_children_item('kt_saas_account', $item);
+        }
+
+        return;
+    }
+
+    if (!kt_saas_is_landlord_context()) {
+        return;
+    }
+
+    if (!kt_saas_staff_can('kt_saas_view')) {
+        return;
+    }
+
+    $CI->app_menu->add_sidebar_menu_item('kt_saas', [
+        'slug'     => 'kt_saas',
+        'name'     => _l('kt_saas'),
+        'icon'     => 'fa fa-cloud',
+        'collapse' => true,
+        'position' => 31,
+    ]);
+
+    $items = [
+        ['slug' => 'kt_saas_dashboard', 'name' => _l('kt_saas_dashboard'), 'href' => admin_url('kt_saas')],
+        ['slug' => 'kt_saas_tenants', 'name' => _l('kt_saas_tenants'), 'href' => admin_url('kt_saas/tenants'), 'cap' => 'kt_saas_manage_tenants'],
+        ['slug' => 'kt_saas_plans', 'name' => _l('kt_saas_plans'), 'href' => admin_url('kt_saas/plans'), 'cap' => 'kt_saas_manage_plans'],
+        ['slug' => 'kt_saas_subscriptions', 'name' => _l('kt_saas_subscriptions'), 'href' => admin_url('kt_saas/subscriptions'), 'cap' => 'kt_saas_manage_billing'],
+        ['slug' => 'kt_saas_invoices', 'name' => _l('kt_saas_invoices'), 'href' => admin_url('kt_saas/invoices'), 'cap' => 'kt_saas_manage_billing'],
+        ['slug' => 'kt_saas_payments', 'name' => _l('kt_saas_payments'), 'href' => admin_url('kt_saas/payments'), 'cap' => 'kt_saas_manage_billing'],
+        ['slug' => 'kt_saas_domains', 'name' => _l('kt_saas_domains'), 'href' => admin_url('kt_saas/domains'), 'cap' => 'kt_saas_manage_domains'],
+        ['slug' => 'kt_saas_modules', 'name' => _l('kt_saas_modules'), 'href' => admin_url('kt_saas/modules'), 'cap' => 'kt_saas_manage_modules'],
+        ['slug' => 'kt_saas_backups', 'name' => _l('kt_saas_backups'), 'href' => admin_url('kt_saas/backups'), 'cap' => 'kt_saas_manage_backups'],
+        ['slug' => 'kt_saas_provision_jobs', 'name' => _l('kt_saas_provision_jobs'), 'href' => admin_url('kt_saas/provision_jobs'), 'cap' => 'kt_saas_run_provisioning'],
+        ['slug' => 'kt_saas_activity_logs', 'name' => _l('kt_saas_activity_logs'), 'href' => admin_url('kt_saas/activity_logs'), 'cap' => 'kt_saas_view'],
+        ['slug' => 'kt_saas_settings', 'name' => _l('kt_saas_settings'), 'href' => admin_url('kt_saas/settings'), 'cap' => 'kt_saas_manage_settings'],
+        ['slug' => 'kt_saas_architecture', 'name' => _l('kt_saas_architecture'), 'href' => admin_url('kt_saas/architecture')],
+    ];
+
+    $position = 1;
+    foreach ($items as $item) {
+        if (isset($item['cap']) && !kt_saas_staff_can($item['cap'])) {
+            continue;
+        }
+        $item['position'] = $position++;
+        $CI->app_menu->add_sidebar_children_item('kt_saas', $item);
+    }
+}
+
+function kt_saas_admin_head_assets()
+{
+    if (!kt_saas_is_module_request()) {
+        return;
+    }
+
+    echo '<link href="' . KT_SAAS_ASSETS_URL . 'css/kt_saas.css?v=' . KT_SAAS_VERSION . '" rel="stylesheet" type="text/css" />';
+}
+
+function kt_saas_admin_footer_assets()
+{
+    if (!kt_saas_is_module_request()) {
+        return;
+    }
+
+    echo '<script src="' . KT_SAAS_ASSETS_URL . 'js/kt_saas.js?v=' . KT_SAAS_VERSION . '"></script>';
+}
+
+function kt_saas_register_runtime_hooks()
+{
+    static $registered = false;
+    if ($registered) {
+        return;
+    }
+
+    hooks()->add_filter('before_create_staff_member', 'kt_saas_limit_guard_before_create_staff_member');
+    hooks()->add_action('staff_member_created', 'kt_saas_after_staff_member_created');
+    hooks()->add_action('staff_member_deleted', 'kt_saas_after_staff_member_deleted');
+    hooks()->add_filter('email_template_from_headers', 'kt_saas_filter_tenant_email_template_from_headers', 10, 2);
+    hooks()->add_filter('before_email_template_send', 'kt_saas_filter_tenant_email_template_send_payload');
+
+    hooks()->add_filter('before_client_added', 'kt_saas_limit_guard_before_client_added');
+    hooks()->add_action('after_client_created', 'kt_saas_after_client_created');
+    hooks()->add_action('after_client_deleted', 'kt_saas_after_client_deleted');
+
+    hooks()->add_filter('before_add_project', 'kt_saas_limit_guard_before_add_project');
+    hooks()->add_action('after_add_project', 'kt_saas_after_project_created');
+    hooks()->add_action('after_project_deleted', 'kt_saas_after_project_deleted');
+
+    hooks()->add_filter('before_invoice_added', 'kt_saas_limit_guard_before_invoice_added');
+    hooks()->add_action('after_invoice_added', 'kt_saas_after_invoice_added');
+    hooks()->add_action('after_invoice_deleted', 'kt_saas_after_invoice_deleted');
+
+    $registered = true;
+}
+
+function kt_saas_runtime_entitlements()
+{
+    if (!kt_saas_is_tenant_runtime()) {
+        return null;
+    }
+
+    require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+    return new TenantEntitlementService();
+}
+
+function kt_saas_limit_guard_before_create_staff_member($data)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->assertCanCreate('staff');
+    }
+
+    return $data;
+}
+
+function kt_saas_after_staff_member_created($staffId)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->persistUsageSnapshot();
+    }
+}
+
+function kt_saas_after_staff_member_deleted($payload)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->persistUsageSnapshot();
+    }
+}
+
+function kt_saas_limit_guard_before_client_added($data)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->assertCanCreate('clients');
+    }
+
+    return $data;
+}
+
+function kt_saas_after_client_created($payload)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->persistUsageSnapshot();
+    }
+}
+
+function kt_saas_after_client_deleted($clientId)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->persistUsageSnapshot();
+    }
+}
+
+function kt_saas_limit_guard_before_add_project($data)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->assertCanCreate('projects');
+    }
+
+    return $data;
+}
+
+function kt_saas_after_project_created($projectId)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->persistUsageSnapshot();
+    }
+}
+
+function kt_saas_after_project_deleted($projectId)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->persistUsageSnapshot();
+    }
+}
+
+function kt_saas_limit_guard_before_invoice_added($hook)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->assertCanCreate('invoices');
+    }
+
+    return $hook;
+}
+
+function kt_saas_after_invoice_added($invoiceId)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->persistUsageSnapshot();
+    }
+}
+
+function kt_saas_after_invoice_deleted($invoiceId)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->persistUsageSnapshot();
+    }
+}
+
+function kt_saas_assert_automation_allowed($increment = 1)
+{
+    $service = kt_saas_runtime_entitlements();
+    if ($service) {
+        $service->assertCanCreate('automation', (int) $increment);
+    }
+}
+
+function kt_saas_increment_automation_usage($value = 1)
+{
+    if (!kt_saas_is_tenant_runtime()) {
+        return false;
+    }
+
+    require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantLimitService.php');
+    $tenant = kt_saas_current_tenant();
+    if (!$tenant) {
+        return false;
+    }
+
+    $service = new TenantLimitService();
+    return $service->incrementUsage((int) $tenant['id'], 'core', 'automation', (float) $value);
+}
+
+function kt_saas_decrement_automation_usage($value = 1)
+{
+    if (!kt_saas_is_tenant_runtime()) {
+        return false;
+    }
+
+    require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantLimitService.php');
+    $tenant = kt_saas_current_tenant();
+    if (!$tenant) {
+        return false;
+    }
+
+    $service = new TenantLimitService();
+    return $service->decrementUsage((int) $tenant['id'], 'core', 'automation', (float) $value);
+}
+
+function kt_saas_filter_tenant_email_template_from_headers($headers, $template = null)
+{
+    if (!kt_saas_is_tenant_runtime()) {
+        return $headers;
+    }
+
+    if (!is_array($headers)) {
+        return $headers;
+    }
+
+    $customFromName = trim((string) get_option('kt_saas_mail_from_name'));
+    if ($customFromName !== '') {
+        $headers['fromname'] = $customFromName;
+    } elseif (empty($headers['fromname'])) {
+        $headers['fromname'] = get_option('companyname');
+    }
+
+    return $headers;
+}
+
+function kt_saas_filter_tenant_email_template_send_payload($payload)
+{
+    if (!kt_saas_is_tenant_runtime() || !is_array($payload) || empty($payload['template']) || !is_object($payload['template'])) {
+        return $payload;
+    }
+
+    $replyToEmail = trim((string) get_option('kt_saas_mail_reply_to_email'));
+    if ($replyToEmail !== '' && empty($payload['template']->reply_to)) {
+        $payload['template']->reply_to = $replyToEmail;
+    }
+
+    return $payload;
+}
+
+function kt_saas_filter_tenant_sidebar_menu_items($items)
+{
+    require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantUiService.php');
+    $uiService = new TenantUiService();
+    return $uiService->filterSidebarMenu($items);
+}
+
+function kt_saas_filter_tenant_setup_menu_items($items)
+{
+    require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantUiService.php');
+    $uiService = new TenantUiService();
+    return $uiService->filterSetupMenu($items);
+}
+
+function kt_saas_filter_tenant_setup_menu_visibility($visible)
+{
+    if (kt_saas_is_tenant_runtime()) {
+        return false;
+    }
+
+    return $visible;
+}

@@ -1,0 +1,248 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+/*
+Module Name: KT MatBao Invoice
+Description: MatBao eInvoice + SignServer integration for Perfex CRM and KT SaaS.
+Version: 0.1.0
+Requires at least: 3.0.*
+Author: Internal Engineering
+*/
+
+define('KT_MATBAO_INVOICE_MODULE', 'kt_matbao_invoice');
+define('KT_MATBAO_INVOICE_VERSION', '0.1.0');
+define('KT_MATBAO_INVOICE_ASSETS_URL', module_dir_url(KT_MATBAO_INVOICE_MODULE, 'assets/'));
+
+register_language_files(KT_MATBAO_INVOICE_MODULE, [KT_MATBAO_INVOICE_MODULE]);
+register_activation_hook(KT_MATBAO_INVOICE_MODULE, 'kt_matbao_invoice_activation_hook');
+register_uninstall_hook(KT_MATBAO_INVOICE_MODULE, 'kt_matbao_invoice_uninstall_hook');
+
+hooks()->add_action('admin_init', 'kt_matbao_invoice_init');
+hooks()->add_action('app_admin_head', 'kt_matbao_invoice_admin_head_assets');
+hooks()->add_action('app_admin_footer', 'kt_matbao_invoice_admin_footer_assets');
+hooks()->add_action('before_invoice_preview_more_menu_button', 'kt_matbao_invoice_invoice_button');
+
+function kt_matbao_invoice_activation_hook()
+{
+    require_once __DIR__ . '/install.php';
+    kt_matbao_invoice_run_install();
+}
+
+function kt_matbao_invoice_uninstall_hook()
+{
+    require_once __DIR__ . '/uninstall.php';
+    kt_matbao_invoice_run_uninstall();
+}
+
+function kt_matbao_invoice_init()
+{
+    $CI = &get_instance();
+    $CI->load->helper(KT_MATBAO_INVOICE_MODULE . '/kt_matbao_invoice');
+    $CI->load->model(KT_MATBAO_INVOICE_MODULE . '/Kt_matbao_invoice_model');
+
+    kt_matbao_invoice_maybe_upgrade_schema();
+    kt_matbao_invoice_sync_entitlement_aliases();
+    kt_matbao_invoice_register_staff_capabilities();
+    kt_matbao_invoice_register_menu_items();
+}
+
+function kt_matbao_invoice_sync_entitlement_aliases()
+{
+    if (!function_exists('kt_saas_is_landlord_context') || !kt_saas_is_landlord_context()) {
+        return;
+    }
+
+    $CI = &get_instance();
+    $table = db_prefix() . 'kt_saas_plan_features';
+    if (!$CI->db->table_exists($table)) {
+        return;
+    }
+
+    $legacyRows = $CI->db
+        ->where('module_name', KT_MATBAO_INVOICE_MODULE)
+        ->where('feature_key', KT_MATBAO_INVOICE_MODULE . '.access')
+        ->get($table)
+        ->result_array();
+
+    if (empty($legacyRows)) {
+        return;
+    }
+
+    $now = date('Y-m-d H:i:s');
+    foreach ($legacyRows as $row) {
+        $planId = (int) ($row['plan_id'] ?? 0);
+        if ($planId < 1) {
+            continue;
+        }
+
+        $exists = $CI->db
+            ->where('plan_id', $planId)
+            ->where('module_name', 'matbao_invoice')
+            ->where('feature_key', 'matbao_invoice.enabled')
+            ->count_all_results($table);
+
+        if (!$exists) {
+            $CI->db->insert($table, [
+                'plan_id' => $planId,
+                'module_name' => 'matbao_invoice',
+                'feature_key' => 'matbao_invoice.enabled',
+                'is_enabled' => (int) ($row['is_enabled'] ?? 0) === 1 ? 1 : 0,
+                'feature_value' => null,
+                'created_at' => $now,
+            ]);
+        }
+    }
+}
+
+function kt_matbao_invoice_maybe_upgrade_schema()
+{
+    if (!function_exists('get_option') || !function_exists('update_option')) {
+        return;
+    }
+
+    if (function_exists('kt_saas_is_landlord_context') && !kt_saas_is_landlord_context()) {
+        return;
+    }
+
+    $current = (string) get_option('kt_matbao_invoice_schema_version');
+    if ($current === KT_MATBAO_INVOICE_VERSION) {
+        return;
+    }
+
+    require_once __DIR__ . '/install.php';
+    kt_matbao_invoice_run_install();
+    update_option('kt_matbao_invoice_schema_version', KT_MATBAO_INVOICE_VERSION);
+}
+
+function kt_matbao_invoice_register_staff_capabilities()
+{
+    register_staff_capabilities(
+        KT_MATBAO_INVOICE_MODULE,
+        [
+            'capabilities' => [
+                'matbao_invoice_view'      => _l('kt_matbao_invoice_permission_view'),
+                'matbao_invoice_configure' => _l('kt_matbao_invoice_permission_configure'),
+                'matbao_invoice_create'    => _l('kt_matbao_invoice_permission_create'),
+                'matbao_invoice_issue'     => _l('kt_matbao_invoice_permission_issue'),
+                'matbao_invoice_sign'      => _l('kt_matbao_invoice_permission_sign'),
+                'matbao_invoice_download'  => _l('kt_matbao_invoice_permission_download'),
+                'matbao_invoice_cancel'    => _l('kt_matbao_invoice_permission_cancel'),
+                'matbao_invoice_logs'      => _l('kt_matbao_invoice_permission_logs'),
+            ],
+        ],
+        _l('kt_matbao_invoice')
+    );
+}
+
+function kt_matbao_invoice_register_menu_items()
+{
+    $CI = &get_instance();
+
+    if (function_exists('kt_saas_is_tenant_runtime') && kt_saas_is_tenant_runtime()) {
+        if (!is_admin() || !kt_matbao_invoice_tenant_can_access()) {
+            return;
+        }
+
+        $CI->app_menu->add_sidebar_menu_item('kt_matbao_invoice', [
+            'slug'     => 'kt_matbao_invoice',
+            'name'     => _l('kt_matbao_invoice'),
+            'icon'     => 'fa fa-file-text-o',
+            'collapse' => true,
+            'position' => 30.7,
+        ]);
+
+        $items = [
+            ['slug' => 'kt_matbao_invoice_tenant_overview', 'name' => _l('kt_matbao_invoice_overview'), 'href' => admin_url('kt_matbao_invoice_tenant')],
+            ['slug' => 'kt_matbao_invoice_tenant_invoices', 'name' => _l('kt_matbao_invoice_invoices'), 'href' => admin_url('kt_matbao_invoice_tenant/invoices')],
+            ['slug' => 'kt_matbao_invoice_tenant_addons', 'name' => _l('kt_matbao_invoice_tenant_addons'), 'href' => admin_url('kt_matbao_invoice_tenant/addons')],
+            ['slug' => 'kt_matbao_invoice_tenant_usage', 'name' => _l('kt_matbao_invoice_usage'), 'href' => admin_url('kt_matbao_invoice_tenant/usage')],
+            ['slug' => 'kt_matbao_invoice_tenant_logs', 'name' => _l('kt_matbao_invoice_logs'), 'href' => admin_url('kt_matbao_invoice_tenant/logs')],
+        ];
+
+        if (kt_matbao_invoice_tenant_can_configure()) {
+            $items[] = ['slug' => 'kt_matbao_invoice_tenant_settings', 'name' => _l('kt_matbao_invoice_settings'), 'href' => admin_url('kt_matbao_invoice_tenant/settings')];
+        }
+
+        $position = 1;
+        foreach ($items as $item) {
+            $item['position'] = $position++;
+            $CI->app_menu->add_sidebar_children_item('kt_matbao_invoice', $item);
+        }
+
+        return;
+    }
+
+    if (function_exists('kt_saas_is_landlord_context') && !kt_saas_is_landlord_context()) {
+        return;
+    }
+
+    if (!kt_matbao_invoice_staff_can('matbao_invoice_view')) {
+        return;
+    }
+
+    $CI->app_menu->add_sidebar_menu_item('kt_matbao_invoice', [
+        'slug'     => 'kt_matbao_invoice',
+        'name'     => _l('kt_matbao_invoice'),
+        'icon'     => 'fa fa-file-text-o',
+        'collapse' => true,
+        'position' => 33,
+    ]);
+
+    $items = [
+        ['slug' => 'kt_matbao_invoice_overview', 'name' => _l('kt_matbao_invoice_overview'), 'href' => admin_url('kt_matbao_invoice')],
+        ['slug' => 'kt_matbao_invoice_settings', 'name' => _l('kt_matbao_invoice_settings'), 'href' => admin_url('kt_matbao_invoice/settings'), 'cap' => 'matbao_invoice_configure'],
+        ['slug' => 'kt_matbao_invoice_plan_entitlements', 'name' => _l('kt_matbao_invoice_plan_entitlements'), 'href' => admin_url('kt_matbao_invoice/plan_entitlements'), 'cap' => 'matbao_invoice_configure'],
+        ['slug' => 'kt_matbao_invoice_templates', 'name' => _l('kt_matbao_invoice_templates'), 'href' => admin_url('kt_matbao_invoice/templates')],
+        ['slug' => 'kt_matbao_invoice_invoices', 'name' => _l('kt_matbao_invoice_invoices'), 'href' => admin_url('kt_matbao_invoice/invoices')],
+        ['slug' => 'kt_matbao_invoice_logs', 'name' => _l('kt_matbao_invoice_logs'), 'href' => admin_url('kt_matbao_invoice/logs'), 'cap' => 'matbao_invoice_logs'],
+        ['slug' => 'kt_matbao_invoice_webhook_logs', 'name' => _l('kt_matbao_invoice_webhook_logs'), 'href' => admin_url('kt_matbao_invoice/webhook_logs'), 'cap' => 'matbao_invoice_logs'],
+        ['slug' => 'kt_matbao_invoice_reseller_packages', 'name' => 'Reseller Packages', 'href' => admin_url('kt_matbao_invoice/reseller_packages'), 'cap' => 'matbao_invoice_configure'],
+        ['slug' => 'kt_matbao_invoice_orders', 'name' => 'Orders', 'href' => admin_url('kt_matbao_invoice/orders')],
+        ['slug' => 'kt_matbao_invoice_provisioning_queue', 'name' => 'Provisioning Queue', 'href' => admin_url('kt_matbao_invoice/provisioning_queue')],
+        ['slug' => 'kt_matbao_invoice_tenant_addons', 'name' => 'Tenant Add-ons', 'href' => admin_url('kt_matbao_invoice/tenant_addons')],
+    ];
+
+    $position = 1;
+    foreach ($items as $item) {
+        if (isset($item['cap']) && !kt_matbao_invoice_staff_can($item['cap'])) {
+            continue;
+        }
+        $item['position'] = $position++;
+        $CI->app_menu->add_sidebar_children_item('kt_matbao_invoice', $item);
+    }
+}
+
+function kt_matbao_invoice_admin_head_assets()
+{
+    if (!kt_matbao_invoice_is_module_request()) {
+        return;
+    }
+
+    echo '<link href="' . KT_MATBAO_INVOICE_ASSETS_URL . 'css/kt_matbao_invoice.css?v=' . KT_MATBAO_INVOICE_VERSION . '" rel="stylesheet" type="text/css" />';
+}
+
+function kt_matbao_invoice_admin_footer_assets()
+{
+    if (!kt_matbao_invoice_is_module_request()) {
+        return;
+    }
+
+    echo '<script src="' . KT_MATBAO_INVOICE_ASSETS_URL . 'js/kt_matbao_invoice.js?v=' . KT_MATBAO_INVOICE_VERSION . '"></script>';
+}
+
+function kt_matbao_invoice_invoice_button($invoice)
+{
+    if (!is_admin() || empty($invoice) || !is_object($invoice)) {
+        return;
+    }
+
+    if (function_exists('kt_saas_is_tenant_runtime') && kt_saas_is_tenant_runtime()) {
+        if (!kt_matbao_invoice_tenant_can_access()) {
+            return;
+        }
+    }
+
+    $ci = &get_instance();
+    $ci->load->view(KT_MATBAO_INVOICE_MODULE . '/invoice/einvoice_panel', ['invoice' => $invoice]);
+}

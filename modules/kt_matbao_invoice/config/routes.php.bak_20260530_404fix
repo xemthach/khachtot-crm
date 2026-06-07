@@ -1,0 +1,39 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+$route['kt_matbao_invoice/webhook/invoice'] = 'kt_matbao_invoice_webhook/invoice';
+$route['kt_matbao_invoice/webhook/signing'] = 'kt_matbao_invoice_webhook/signing';
+
+// Tenant runtime aliases (admin URL includes /admin prefix externally).
+$route['admin/kt_matbao_invoice_tenant'] = 'kt_matbao_invoice_tenant/index';
+$route['admin/kt_matbao_invoice_tenant/settings'] = 'kt_matbao_invoice_tenant/settings';
+$route['admin/kt_matbao_invoice_tenant/test_connection'] = 'kt_matbao_invoice_tenant/test_connection';
+$route['admin/kt_matbao_invoice_tenant/invoices'] = 'kt_matbao_invoice_tenant/invoices';
+$route['admin/kt_matbao_invoice_tenant/usage'] = 'kt_matbao_invoice_tenant/usage';
+$route['admin/kt_matbao_invoice_tenant/logs'] = 'kt_matbao_invoice_tenant/logs';
+$route['admin/kt_matbao_invoice_tenant/addons'] = 'kt_matbao_invoice_tenant/addons';
+$route['admin/kt_matbao_invoice_tenant/buy_addons'] = 'kt_matbao_invoice_tenant/buy_addons';
+$route['admin/kt_matbao_invoice_tenant/buy_package'] = 'kt_matbao_invoice_tenant/buy_package';
+$route['admin/kt_matbao_invoice_tenant/checkout_addon'] = 'kt_matbao_invoice_tenant/checkout_addon';
+$route['admin/kt_matbao_invoice_tenant/order/(:num)'] = 'kt_matbao_invoice_tenant/order/$1';
+$route['admin/kt_matbao_invoice_tenant/create_draft/(:num)'] = 'kt_matbao_invoice_tenant/create_draft/$1';
+$route['admin/kt_matbao_invoice_tenant/issue/(:num)'] = 'kt_matbao_invoice_tenant/issue/$1';
+$route['admin/kt_matbao_invoice_tenant/sync_status/(:num)'] = 'kt_matbao_invoice_tenant/sync_status/$1';
+$route['admin/kt_matbao_invoice_tenant/download/(:num)/(:any)'] = 'kt_matbao_invoice_tenant/download/$1/$2';
+
+$route['kt_matbao_invoice_tenant'] = 'kt_matbao_invoice_tenant/index';
+$route['kt_matbao_invoice_tenant/settings'] = 'kt_matbao_invoice_tenant/settings';
+$route['kt_matbao_invoice_tenant/test_connection'] = 'kt_matbao_invoice_tenant/test_connection';
+$route['kt_matbao_invoice_tenant/invoices'] = 'kt_matbao_invoice_tenant/invoices';
+$route['kt_matbao_invoice_tenant/usage'] = 'kt_matbao_invoice_tenant/usage';
+$route['kt_matbao_invoice_tenant/logs'] = 'kt_matbao_invoice_tenant/logs';
+$route['kt_matbao_invoice_tenant/addons'] = 'kt_matbao_invoice_tenant/addons';
+$route['kt_matbao_invoice_tenant/buy_addons'] = 'kt_matbao_invoice_tenant/buy_addons';
+$route['kt_matbao_invoice_tenant/buy_package'] = 'kt_matbao_invoice_tenant/buy_package';
+$route['kt_matbao_invoice_tenant/checkout_addon'] = 'kt_matbao_invoice_tenant/checkout_addon';
+$route['kt_matbao_invoice_tenant/order/(:num)'] = 'kt_matbao_invoice_tenant/order/$1';
+$route['kt_matbao_invoice_tenant/create_draft/(:num)'] = 'kt_matbao_invoice_tenant/create_draft/$1';
+$route['kt_matbao_invoice_tenant/issue/(:num)'] = 'kt_matbao_invoice_tenant/issue/$1';
+$route['kt_matbao_invoice_tenant/sync_status/(:num)'] = 'kt_matbao_invoice_tenant/sync_status/$1';
+$route['kt_matbao_invoice_tenant/download/(:num)/(:any)'] = 'kt_matbao_invoice_tenant/download/$1/$2';

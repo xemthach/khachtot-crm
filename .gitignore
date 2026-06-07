@@ -1,0 +1,90 @@
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local environment / secrets
+.env
+.env.*
+application/config/app-config.php
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+!application/vendor/**/*.pem
+!application/vendor/**/*.crt
+!modules/**/vendor/**/*.pem
+!modules/**/vendor/**/*.crt
+
+# Logs / cache
+application/logs/*
+!application/logs/index.html
+application/cache/*
+!application/cache/index.html
+
+# Runtime uploads / generated media
+uploads/*
+!uploads/index.html
+!uploads/.htaccess
+media/*
+!media/index.html
+temp/*
+
+# SaaS runtime storage / generated files
+modules/kt_saas/storage/backups/*
+modules/kt_saas/tenant_bootstrap/manifests/*
+modules/kt_saas/tenant_bootstrap/runtime/*
+modules/kt_saas/tenant_bootstrap/cache/*
+
+# Backups / dumps / archives
+*.sql
+*.sql.gz
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+*_backup_*
+backup/
+backups/
+!application/vendor/**/*.sql
+!modules/**/vendor/**/*.sql
+
+# Temp / debug / local probes
+*.bak
+*.old
+*.orig
+*.tmp
+*.log
+*.cache
+debug_*
+probe_*
+runtime_probe*
+scratch*
+check_db.php
+check_route_resolve.php
+opcache_reset.php
+*_headers.txt
+*cookies*.txt
+landlord*.html
+tenant*.html
+admin_login*.html
+client*.html
+*_output.html
+rootcurl.txt
+tenantcurl.txt
+tmp-signup-*.png
+
+# Frontend dependencies
+node_modules/
+
+# Third-party API reference exports with demo credentials/tokens
+docs/MatBao Invoice API/
+
+# Composer/vendor policy:
+# No root composer.json exists; application/vendor is part of the Perfex app runtime.
+# Do not ignore application/vendor unless deployment is changed to run Composer on server.

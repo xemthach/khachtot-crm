@@ -1,0 +1,456 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+class Kt_matbao_invoice_tenant extends AdminController
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->helper(KT_MATBAO_INVOICE_MODULE . '/kt_matbao_invoice');
+        $this->load->model(KT_MATBAO_INVOICE_MODULE . '/Kt_matbao_invoice_model');
+        $this->load->library(KT_MATBAO_INVOICE_MODULE . '/Matbao_invoice_client');
+    }
+
+    private function guardAccess()
+    {
+        if (!kt_matbao_invoice_tenant_can_access()) {
+            access_denied('MatBao Invoice entitlement required');
+        }
+    }
+
+    private function tenant()
+    {
+        return function_exists('kt_saas_current_tenant') ? (kt_saas_current_tenant() ?: []) : [];
+    }
+
+    private function requireTenantFeature($tenantId, $featureKey, $fallback = false)
+    {
+        if (!$this->Kt_matbao_invoice_model->tenant_feature_allowed((int) $tenantId, (string) $featureKey, $fallback)) {
+            access_denied('MatBao Invoice feature denied: ' . $featureKey);
+        }
+    }
+
+    private function requirePost()
+    {
+        if (strtoupper((string) $this->input->method()) !== 'POST') {
+            show_404();
+        }
+    }
+
+    public function index()
+    {
+        $this->guardAccess();
+        $tenant = $this->tenant();
+        $data['title'] = _l('kt_matbao_invoice_overview');
+        $data['tenant'] = $tenant;
+        $data['records'] = $this->Kt_matbao_invoice_model->get_records((int) $tenant['id'], 20);
+        $data['logs'] = $this->Kt_matbao_invoice_model->get_logs((int) $tenant['id'], 20);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/tenant/overview', $data);
+    }
+
+    public function settings()
+    {
+        $this->guardAccess();
+        if (!kt_matbao_invoice_tenant_can_configure()) {
+            access_denied('Tenant config not allowed by plan');
+        }
+
+        $tenant = $this->tenant();
+        if ($this->input->post()) {
+            $this->Kt_matbao_invoice_model->save_settings($this->input->post(), (int) $tenant['id'], 'tenant');
+            set_alert('success', 'Saved tenant MatBao settings.');
+            redirect(admin_url('kt_matbao_invoice_tenant/settings'));
+        }
+
+        $data['title'] = _l('kt_matbao_invoice_settings');
+        $data['settings'] = $this->Kt_matbao_invoice_model->get_settings((int) $tenant['id'], 'tenant');
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/tenant/settings', $data);
+    }
+
+    public function test_connection()
+    {
+        $this->guardAccess();
+        if (!kt_matbao_invoice_tenant_can_configure()) {
+            access_denied('Tenant config not allowed by plan');
+        }
+        $this->requirePost();
+
+        $tenant = $this->tenant();
+        $settings = $this->Kt_matbao_invoice_model->get_settings((int) $tenant['id'], 'tenant');
+        if (!$settings) {
+            set_alert('warning', 'No tenant settings to test.');
+            redirect(admin_url('kt_matbao_invoice_tenant/settings'));
+        }
+
+        $result = $this->matbao_invoice_client->login($settings);
+        $status = !empty($result['success']) ? 'success' : 'error';
+        $message = !empty($result['success']) ? 'Connection success.' : ('Connection failed: ' . ($result['error'] ?: 'HTTP ' . (int) ($result['http_code'] ?? 0)));
+        $this->Kt_matbao_invoice_model->update_test_result((int) $settings['id'], $status, $message);
+        set_alert(!empty($result['success']) ? 'success' : 'warning', $message);
+        redirect(admin_url('kt_matbao_invoice_tenant/settings'));
+    }
+
+    public function invoices()
+    {
+        $this->guardAccess();
+        $tenant = $this->tenant();
+        $data['title'] = _l('kt_matbao_invoice_invoices');
+        $data['tenant'] = $tenant;
+        $data['records'] = $this->Kt_matbao_invoice_model->get_records((int) $tenant['id'], 200);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/tenant/invoices', $data);
+    }
+
+    public function usage()
+    {
+        $this->guardAccess();
+        $tenant = $this->tenant();
+        $data['title'] = _l('kt_matbao_invoice_usage');
+        $data['summary'] = $this->Kt_matbao_invoice_model->get_tenant_addon_usage_summary((int) ($tenant['id'] ?? 0));
+        $data['addons'] = $this->Kt_matbao_invoice_model->get_tenant_addons((int) ($tenant['id'] ?? 0));
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/tenant/usage', $data);
+    }
+
+    public function logs()
+    {
+        $this->guardAccess();
+        $tenant = $this->tenant();
+        $data['title'] = _l('kt_matbao_invoice_logs');
+        $data['logs'] = $this->Kt_matbao_invoice_model->get_logs((int) $tenant['id'], 300);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/tenant/logs', $data);
+    }
+
+    public function addons()
+    {
+        $this->guardAccess();
+        $tenant = $this->tenant();
+        $tenantId = (int) ($tenant['id'] ?? 0);
+        $data['title'] = _l('kt_matbao_invoice_tenant_addons');
+        $data['packages'] = $this->Kt_matbao_invoice_model->get_active_reseller_packages_for_tenant();
+        $data['orders'] = $this->Kt_matbao_invoice_model->get_orders($tenantId);
+        $data['addons'] = $this->Kt_matbao_invoice_model->get_tenant_addons($tenantId);
+        $data['summary'] = $this->Kt_matbao_invoice_model->get_tenant_addon_usage_summary($tenantId);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/tenant/addons', $data);
+    }
+
+    public function buy_addons()
+    {
+        $this->guardAccess();
+        $this->requirePost();
+        $tenant = $this->tenant();
+        $tenantId = (int) ($tenant['id'] ?? 0);
+
+        $selected = $this->input->post('items');
+        $items = [];
+        if (is_array($selected)) {
+            foreach ($selected as $packageId => $qty) {
+                $items[] = [
+                    'package_id' => (int) $packageId,
+                    'quantity' => (float) $qty,
+                ];
+            }
+        }
+
+        $result = $this->Kt_matbao_invoice_model->create_tenant_addon_order($tenantId, $items);
+        if (empty($result['success'])) {
+            set_alert('warning', (string) ($result['message'] ?? 'Unable to create add-on order.'));
+            redirect(admin_url('kt_matbao_invoice_tenant/addons'));
+        }
+
+        set_alert('success', 'Created add-on order ' . (string) ($result['order_code'] ?? '') . '. Please proceed payment.');
+        redirect(admin_url('kt_matbao_invoice_tenant/order/' . (int) ($result['order_id'] ?? 0)));
+    }
+
+    public function buy_package()
+    {
+        return $this->buy_addons();
+    }
+
+    public function checkout_addon()
+    {
+        return $this->buy_addons();
+    }
+
+    public function order($orderId)
+    {
+        $this->guardAccess();
+        $tenant = $this->tenant();
+        $tenantId = (int) ($tenant['id'] ?? 0);
+        $order = $this->Kt_matbao_invoice_model->get_order_by_tenant((int) $orderId, $tenantId);
+        if (!$order) {
+            show_404();
+        }
+
+        $data['title'] = 'Add-on Order #' . (int) $order['id'];
+        $data['order'] = $order;
+        $data['items'] = $this->Kt_matbao_invoice_model->get_order_items((int) $order['id']);
+        $this->load->view(KT_MATBAO_INVOICE_MODULE . '/tenant/order', $data);
+    }
+
+    public function create_draft($invoiceId)
+    {
+        $tenant = $this->tenant();
+        $this->requireTenantFeature((int) ($tenant['id'] ?? 0), 'matbao_invoice.create_draft', true);
+        return $this->createOrIssue($invoiceId, 0);
+    }
+
+    public function issue($invoiceId)
+    {
+        $tenant = $this->tenant();
+        $this->requireTenantFeature((int) ($tenant['id'] ?? 0), 'matbao_invoice.issue_invoice', true);
+        return $this->createOrIssue($invoiceId, 1);
+    }
+
+    public function sync_status($recordId)
+    {
+        $this->guardAccess();
+        $this->requirePost();
+        $tenant = $this->tenant();
+        $record = $this->Kt_matbao_invoice_model->get_record((int) $recordId);
+        if (!$record || (int) ($record['tenant_id'] ?? 0) !== (int) $tenant['id']) {
+            show_404();
+        }
+
+        $resolved = $this->Kt_matbao_invoice_model->resolve_tenant_effective_settings($tenant);
+        if ($resolved['scope'] === 'none' || empty($resolved['settings'])) {
+            set_alert('warning', 'No active MatBao settings.');
+            redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+        }
+
+        $result = $this->matbao_invoice_client->getInvoiceDetail($resolved['settings'], [
+            'MaSoHDon' => (string) ($record['ma_so_hdon'] ?? ''),
+        ]);
+        if (empty($result['success'])) {
+            set_alert('warning', 'Status sync failed.');
+            redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+        }
+
+        $response = is_array($result['response']) ? $result['response'] : [];
+        $data = is_array($response['Data'] ?? null) ? $response['Data'] : $response;
+        $this->Kt_matbao_invoice_model->save_record([
+            'id' => (int) $record['id'],
+            'local_status' => !empty($data['MaTTHDon']) ? 'issued' : (string) ($record['local_status'] ?? 'created'),
+            'tax_status_code' => (string) ($data['MaTTHDon'] ?? ($record['tax_status_code'] ?? '')),
+            'tax_status_name' => (string) ($data['TenTTHDon'] ?? ($record['tax_status_name'] ?? '')),
+            'mccqt' => (string) ($data['MCCQT'] ?? ($record['mccqt'] ?? '')),
+            'raw_response_snapshot' => json_encode($response, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+        ]);
+
+        set_alert('success', 'Synced invoice status.');
+        redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+    }
+
+    public function download($recordId, $type = 'pdf')
+    {
+        $this->guardAccess();
+        $tenant = $this->tenant();
+        $feature = strtolower((string) $type) === 'xml' ? 'matbao_invoice.download_xml' : 'matbao_invoice.download_pdf';
+        $this->requireTenantFeature((int) ($tenant['id'] ?? 0), $feature, true);
+        $record = $this->Kt_matbao_invoice_model->get_record((int) $recordId);
+        if (!$record || (int) ($record['tenant_id'] ?? 0) !== (int) $tenant['id']) {
+            show_404();
+        }
+
+        $resolved = $this->Kt_matbao_invoice_model->resolve_tenant_effective_settings($tenant);
+        if ($resolved['scope'] === 'none' || empty($resolved['settings'])) {
+            show_404();
+        }
+
+        $result = $this->matbao_invoice_client->downloadInvoice($resolved['settings'], [
+            'MaTraCuu' => (string) ($record['ma_tra_cuu'] ?? ''),
+            'MaSoHDon' => (string) ($record['ma_so_hdon'] ?? ''),
+        ]);
+        if (empty($result['success']) || !is_array($result['response'])) {
+            show_404();
+        }
+
+        $resp = $result['response'];
+        $key = strtolower($type) === 'xml' ? 'xml' : 'pdf';
+        $contentBase64 = '';
+        if (!empty($resp['Data']) && is_array($resp['Data'])) {
+            $contentBase64 = (string) ($resp['Data'][$key] ?? '');
+        } else {
+            $contentBase64 = (string) ($resp[$key] ?? '');
+        }
+
+        if ($contentBase64 === '') {
+            show_404();
+        }
+
+        $bin = base64_decode($contentBase64, true);
+        if ($bin === false) {
+            show_404();
+        }
+
+        $ext = $key === 'xml' ? 'xml' : 'pdf';
+        $filename = 'matbao_' . ((int) $record['id']) . '.' . $ext;
+        header('Content-Type: ' . ($ext === 'xml' ? 'application/xml' : 'application/pdf'));
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        echo $bin;
+    }
+
+    private function createOrIssue($invoiceId, $loaiHDon)
+    {
+        $this->guardAccess();
+        $this->requirePost();
+
+        $tenant = $this->tenant();
+        $tenantId = (int) ($tenant['id'] ?? 0);
+
+        if ((int) $loaiHDon === 1) {
+            $dailyLimit = $this->Kt_matbao_invoice_model->get_feature_limit($tenantId, 'matbao_invoice.daily_quota', 0);
+            $monthlyLimit = $this->Kt_matbao_invoice_model->get_feature_limit($tenantId, 'matbao_invoice.monthly_quota', 0);
+            if ($dailyLimit > 0 && $this->Kt_matbao_invoice_model->get_issued_count_today($tenantId) >= $dailyLimit) {
+                set_alert('warning', 'Daily eInvoice quota exceeded.');
+                redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+            }
+            if ($monthlyLimit > 0 && $this->Kt_matbao_invoice_model->get_issued_count_month($tenantId) >= $monthlyLimit) {
+                set_alert('warning', 'Monthly eInvoice quota exceeded.');
+                redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+            }
+
+            if ($this->Kt_matbao_invoice_model->has_active_einvoice_addon($tenantId)) {
+                $remaining = $this->Kt_matbao_invoice_model->total_einvoice_remaining_quota($tenantId);
+                if ($remaining < 1) {
+                    set_alert('warning', 'eInvoice add-on quota exhausted.');
+                    redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+                }
+            }
+        }
+
+        $resolved = $this->Kt_matbao_invoice_model->resolve_tenant_effective_settings($tenant);
+        if ($resolved['scope'] === 'none' || empty($resolved['settings'])) {
+            set_alert('warning', 'No active MatBao settings for tenant.');
+            redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+        }
+
+        $bundle = $this->Kt_matbao_invoice_model->get_perfex_invoice_bundle((int) $invoiceId);
+        if (!$bundle) {
+            set_alert('warning', 'Source invoice not found.');
+            redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+        }
+
+        $invoice = $bundle['invoice'];
+        $client = $bundle['client'];
+        $items = $bundle['items'];
+
+        $existing = $this->Kt_matbao_invoice_model->get_record_by_source('perfex_invoice', (int) $invoiceId, $tenantId);
+        if ($existing && in_array((string) ($existing['local_status'] ?? ''), ['issued', 'signed'], true) && (int) $loaiHDon === 1) {
+            set_alert('warning', 'Invoice already issued.');
+            redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+        }
+
+        $lineItems = [];
+        $totalBeforeTax = 0.0;
+        $totalTax = 0.0;
+        $totalAmount = 0.0;
+
+        foreach ($items as $i => $it) {
+            $qty = (float) ($it['qty'] ?? 0);
+            $rate = (float) ($it['rate'] ?? 0);
+            $lineTotal = (float) ($it['amount'] ?? ($qty * $rate));
+            $taxRate = (float) ($it['taxrate'] ?? 0);
+            $lineTax = $lineTotal * $taxRate / 100;
+            $totalBeforeTax += $lineTotal;
+            $totalTax += $lineTax;
+            $totalAmount += $lineTotal + $lineTax;
+
+            $lineItems[] = [
+                'item_source_id' => (int) ($it['id'] ?? 0),
+                'tchat' => '1',
+                'stt' => (string) ($i + 1),
+                'mhhdvu' => '',
+                'thhdvu' => (string) ($it['description'] ?? ''),
+                'dvtinh' => (string) ($it['unit'] ?? ''),
+                'sluong' => $qty,
+                'dgia' => $rate,
+                'thtien_chua_ck' => $lineTotal,
+                'tlckhau' => 0,
+                'stckhau' => 0,
+                'thtien' => $lineTotal,
+                'tsuat' => $taxRate,
+                'tthue' => $lineTax,
+                'tgtien' => $lineTotal + $lineTax,
+            ];
+        }
+
+        $maTraCuu = 'MB' . (int) $tenant['id'] . 'I' . (int) $invoiceId . 'T' . time();
+        $payload = [[
+            'KHMSHDon' => (string) ($resolved['settings']['default_khmshdon'] ?? ''),
+            'KHHDon' => (string) ($resolved['settings']['default_khhdon'] ?? ''),
+            'MaTraCuu' => $maTraCuu,
+            'MTChieu' => 'PERFEX-' . (int) $invoiceId,
+            'NLap' => date('Y-m-d'),
+            'DVTTe' => '704',
+            'TGia' => 1,
+            'HTTToan' => 'Chuyen khoan',
+            'GChu' => 'Perfex Invoice #' . (int) $invoiceId,
+            'TCHDon' => 0,
+            'LoaiHDon' => (int) $loaiHDon,
+            'NMua_Ten' => (string) ($client['company'] ?? $client['companyname'] ?? 'Customer'),
+            'NMua_MST' => (string) ($client['vat'] ?? ''),
+            'NMua_DChi' => trim((string) (($client['address'] ?? '') . ' ' . ($client['city'] ?? ''))),
+            'NMua_SDThoai' => (string) ($client['phonenumber'] ?? ''),
+            'NMua_DCTDTu' => (string) ($client['email'] ?? ''),
+            'DSHHDVu' => $lineItems,
+            'TgThTien' => round($totalBeforeTax, 2),
+            'TgTThue' => round($totalTax, 2),
+            'TTCKTMai' => 0,
+            'TGTKhac' => 0,
+            'TgTTTBSo' => round($totalAmount, 2),
+            'TgTTTBChu' => '',
+        ]];
+
+        $result = $this->matbao_invoice_client->createInvoice($resolved['settings'], $payload);
+        if (empty($result['success'])) {
+            set_alert('warning', 'MatBao create invoice failed.');
+            redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+        }
+
+        $response = is_array($result['response']) ? $result['response'] : [];
+        $data = is_array($response['Data'] ?? null) ? $response['Data'] : $response;
+        $maSoHDon = (string) ($data['MaSoHDon'] ?? ($data[0]['MaSoHDon'] ?? ''));
+
+        $this->Kt_matbao_invoice_model->save_record([
+            'id' => $existing['id'] ?? null,
+            'tenant_id' => $tenantId,
+            'source_type' => 'perfex_invoice',
+            'source_id' => (int) $invoiceId,
+            'perfex_invoice_id' => (int) $invoiceId,
+            'customer_id' => (int) ($invoice['clientid'] ?? 0),
+            'seller_scope' => 'tenant',
+            'credential_scope' => (string) $resolved['scope'],
+            'khmshdon' => (string) ($resolved['settings']['default_khmshdon'] ?? ''),
+            'khhdon' => (string) ($resolved['settings']['default_khhdon'] ?? ''),
+            'ma_tra_cuu' => $maTraCuu,
+            'mt_chieu' => 'PERFEX-' . (int) $invoiceId,
+            'ma_so_hdon' => $maSoHDon,
+            'local_status' => (int) $loaiHDon === 1 ? 'issued' : 'created',
+            'issue_mode' => (int) $loaiHDon === 1 ? 'create_and_issue' : 'draft_only',
+            'nlap' => date('Y-m-d H:i:s'),
+            'total_before_tax' => round($totalBeforeTax, 2),
+            'total_tax' => round($totalTax, 2),
+            'total_amount' => round($totalAmount, 2),
+            'raw_request_snapshot' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'raw_response_snapshot' => json_encode($response, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'created_by' => is_staff_logged_in() ? get_staff_user_id() : null,
+            'issued_at' => (int) $loaiHDon === 1 ? date('Y-m-d H:i:s') : null,
+        ], $lineItems);
+
+        if ((int) $loaiHDon === 1 && $this->Kt_matbao_invoice_model->has_active_einvoice_addon($tenantId)) {
+            $saved = $this->Kt_matbao_invoice_model->get_record_by_source('perfex_invoice', (int) $invoiceId, $tenantId);
+            $consume = $this->Kt_matbao_invoice_model->consume_einvoice_quota_fifo($tenantId, 1, 'matbao_invoice_record', (int) ($saved['id'] ?? 0));
+            if (empty($consume['success'])) {
+                $this->Kt_matbao_invoice_model->save_record([
+                    'id' => (int) ($saved['id'] ?? 0),
+                    'error_message' => (string) ($consume['message'] ?? 'Quota consume failed'),
+                ]);
+                set_alert('warning', 'Invoice issued but quota consume failed. Check add-on balance.');
+                redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+            }
+        }
+
+        set_alert('success', (int) $loaiHDon === 1 ? 'Issued MatBao invoice.' : 'Created MatBao draft.');
+        redirect(admin_url('kt_matbao_invoice_tenant/invoices'));
+    }
+}

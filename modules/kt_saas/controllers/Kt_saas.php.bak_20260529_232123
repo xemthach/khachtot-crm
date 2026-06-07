@@ -1,0 +1,1325 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+class Kt_saas extends AdminController
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->library('app_modules');
+        $this->load->helper(KT_SAAS_MODULE . '/kt_saas');
+        $this->load->model(KT_SAAS_MODULE . '/Kt_saas_model');
+
+        if ($this->isTenantPortalMethod()) {
+            $this->requireTenantContext();
+            if ($this->isTenantWorkspaceSettingsMethod()) {
+                $this->requireTenantWorkspaceSettingsAccess();
+            } elseif ($this->isTenantGovernanceMethod()) {
+                $this->requireTenantWorkspaceGovernanceViewAccess();
+            } else {
+                $this->requireTenantAdmin();
+            }
+            return;
+        }
+
+        $this->requireLandlordContext();
+    }
+
+    public function index()
+    {
+        $this->requireCapability('kt_saas_view');
+
+        $data['title'] = _l('kt_saas_dashboard');
+        $data['summary'] = $this->Kt_saas_model->get_dashboard_summary();
+        $data['landlord_tables'] = $this->Kt_saas_model->get_landlord_table_status();
+        $data['runtime'] = $this->Kt_saas_model->get_runtime_overview();
+        $data['billing_overview'] = $this->Kt_saas_model->get_billing_dashboard_overview();
+        $data['recent_invoices'] = $this->Kt_saas_model->get_recent_invoices(10);
+        $data['recent_payments'] = $this->Kt_saas_model->get_recent_payments(10);
+        $data['usage_overview'] = $this->Kt_saas_model->get_usage_dashboard_overview();
+        $data['usage_snapshots'] = $this->Kt_saas_model->get_latest_usage_snapshots(60);
+        $data['overage_rows'] = $this->Kt_saas_model->get_overage_dashboard_rows();
+        $data['old_usage_rows'] = $this->Kt_saas_model->count_usage_rows_older_than_retention();
+        $data['recent_logs'] = $this->Kt_saas_model->get_recent_activity_logs(10);
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/index', $data);
+    }
+
+    public function architecture()
+    {
+        $this->requireCapability('kt_saas_view');
+
+        $data['title'] = _l('kt_saas_architecture');
+        $data['doc_path'] = module_dir_path(KT_SAAS_MODULE, 'docs/ARCHITECTURE.md');
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/architecture', $data);
+    }
+
+    public function tenants($id = null)
+    {
+        $this->requireCapability('kt_saas_manage_tenants');
+
+        if ($this->input->post()) {
+            $result = $this->Kt_saas_model->save_tenant($this->input->post(), $id ?: null);
+            $this->flashResult($result, 'Tenant saved successfully.');
+            redirect(admin_url('kt_saas/tenants'));
+        }
+
+        $data['title'] = _l('kt_saas_tenants');
+        $data['tenants'] = $this->Kt_saas_model->get_tenants();
+        $data['plans'] = $this->Kt_saas_model->get_plans();
+        $data['statuses'] = kt_saas_tenant_statuses();
+        $data['edit_tenant'] = $id ? $this->Kt_saas_model->get_tenant($id) : null;
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/tenants', $data);
+    }
+
+    public function bulk_tenants()
+    {
+        $this->requireCapability('kt_saas_manage_tenants');
+        $this->requirePost();
+
+        $action = trim((string) $this->input->post('bulk_action'));
+        $ids = $this->normalizeBulkIds($this->input->post('ids'));
+        if ($action === '' || empty($ids)) {
+            set_alert('warning', 'Vui lòng chọn ít nhất một tenant và một thao tác.');
+            redirect(admin_url('kt_saas/tenants'));
+        }
+
+        $processed = 0;
+        $failed = 0;
+        foreach ($ids as $id) {
+            $ok = false;
+            if ($action === 'activate') {
+                $ok = $this->Kt_saas_model->set_tenant_status($id, 'active');
+            } elseif ($action === 'suspend') {
+                $ok = $this->Kt_saas_model->set_tenant_status($id, 'suspended');
+            } elseif ($action === 'terminate') {
+                $ok = $this->Kt_saas_model->set_tenant_status($id, 'terminated');
+            } elseif ($action === 'archive') {
+                $ok = $this->Kt_saas_model->archive_tenant($id);
+            } elseif ($action === 'queue_provision') {
+                $tenant = $this->Kt_saas_model->get_tenant($id);
+                if ($tenant) {
+                    $this->Kt_saas_model->create_provision_job($id, 'provision_tenant', [
+                        'tenant_id'   => $id,
+                        'tenant_code' => $tenant['tenant_code'],
+                    ]);
+                    $ok = true;
+                }
+            }
+
+            if ($ok) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        $this->Kt_saas_model->log_activity('tenant.bulk_action', $failed > 0 ? 'warning' : 'info', [
+            'action'    => $action,
+            'ids'       => $ids,
+            'processed' => $processed,
+            'failed'    => $failed,
+        ]);
+
+        $this->setBulkAlert($processed, $failed, 'Đã xử lý tenant hàng loạt.');
+        redirect(admin_url('kt_saas/tenants'));
+    }
+
+    public function tenant_access($id)
+    {
+        $this->requireCapability('kt_saas_manage_tenants');
+
+        $tenant = $this->Kt_saas_model->get_tenant((int) $id);
+        if (!$tenant) {
+            show_404();
+        }
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantAdminAccessService.php');
+        $service = new TenantAdminAccessService();
+
+        if ($this->input->post('regenerate_onboarding')) {
+            $result = $service->regenerateOnboarding($tenant);
+            set_alert(!empty($result['success']) ? 'success' : 'warning', !empty($result['success']) ? 'Đã tạo lại liên kết onboarding cho tenant.' : ($result['message'] ?? 'Không thể tạo lại liên kết onboarding cho tenant.'));
+            redirect(admin_url('kt_saas/tenant_access/' . (int) $tenant['id']));
+        }
+
+        if ($this->input->post('manual_password_submit')) {
+            $result = $service->setManualPassword($tenant, (string) $this->input->post('manual_password', false));
+            set_alert(!empty($result['success']) ? 'success' : 'warning', !empty($result['success']) ? 'Đã cập nhật thủ công mật khẩu quản trị tenant.' : ($result['message'] ?? 'Không thể cập nhật mật khẩu quản trị tenant.'));
+            redirect(admin_url('kt_saas/tenant_access/' . (int) $tenant['id']));
+        }
+
+        $profile = $service->getTenantAdminAccessProfile($tenant);
+
+        $data['title'] = 'Truy cập tenant';
+        $data['tenant'] = $tenant;
+        $data['access_profile'] = $profile;
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/tenant_access', $data);
+    }
+
+    public function tenant_status($id, $status)
+    {
+        $this->requireCapability('kt_saas_manage_tenants');
+
+        $success = in_array($status, ['trial', 'active', 'grace', 'suspended', 'terminated'], true)
+            ? $this->Kt_saas_model->set_tenant_status((int) $id, $status)
+            : false;
+
+        set_alert($success ? 'success' : 'warning', $success ? 'Đã cập nhật trạng thái tenant.' : 'Không thể cập nhật trạng thái tenant.');
+        redirect(admin_url('kt_saas/tenants'));
+    }
+
+    public function archive_tenant($id)
+    {
+        $this->requireCapability('kt_saas_manage_tenants');
+        $success = $this->Kt_saas_model->archive_tenant((int) $id);
+        set_alert($success ? 'success' : 'warning', $success ? 'Đã lưu trữ tenant.' : 'Không thể lưu trữ tenant.');
+        redirect(admin_url('kt_saas/tenants'));
+    }
+
+    public function plans($id = null)
+    {
+        $this->requireCapability('kt_saas_manage_plans');
+
+        if ($this->input->post()) {
+            $result = $this->Kt_saas_model->save_plan($this->input->post(), $id ?: null);
+            $this->flashResult($result, 'Đã lưu gói dịch vụ.');
+            redirect(admin_url('kt_saas/plans'));
+        }
+
+        $data['title'] = _l('kt_saas_plans');
+        $data['plans'] = $this->Kt_saas_model->get_plans();
+        $data['edit_plan'] = $id ? $this->Kt_saas_model->get_plan($id) : null;
+        $data['workspace_feature_catalog'] = $this->Kt_saas_model->get_workspace_feature_catalog();
+        $data['edit_plan_workspace_features'] = $id ? $this->Kt_saas_model->get_plan_workspace_feature_keys((int) $id) : [];
+        $data['integration_feature_catalog'] = $this->Kt_saas_model->get_integration_feature_catalog();
+        $data['edit_plan_integration_features'] = $id ? $this->Kt_saas_model->get_plan_integration_feature_keys((int) $id) : [];
+        $data['billing_cycles'] = kt_saas_billing_cycles();
+
+        $data['available_modules'] = array_filter(
+            $this->app_modules->get(),
+            function ($module) {
+                return $module['system_name'] !== KT_SAAS_MODULE;
+            }
+        );
+
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/plans', $data);
+    }
+
+    public function subscriptions($id = null)
+    {
+        $this->requireCapability('kt_saas_manage_billing');
+
+        if ($this->input->post()) {
+            $result = $this->Kt_saas_model->save_subscription($this->input->post(), $id ?: null);
+            $this->flashResult($result, 'Đã lưu gói đăng ký.');
+            redirect(admin_url('kt_saas/subscriptions'));
+        }
+
+        $data['title'] = _l('kt_saas_subscriptions');
+        $data['subscriptions'] = $this->Kt_saas_model->get_subscriptions();
+        $data['tenants'] = $this->Kt_saas_model->get_tenants();
+        $data['plans'] = $this->Kt_saas_model->get_plans();
+        $data['edit_subscription'] = $id ? $this->Kt_saas_model->get_subscription($id) : null;
+        $data['statuses'] = kt_saas_subscription_statuses();
+        $data['billing_cycles'] = kt_saas_billing_cycles();
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/subscriptions', $data);
+    }
+
+    public function bulk_subscriptions()
+    {
+        $this->requireCapability('kt_saas_manage_billing');
+        $this->requirePost();
+
+        $action = trim((string) $this->input->post('bulk_action'));
+        $ids = $this->normalizeBulkIds($this->input->post('ids'));
+        if ($action === '' || empty($ids)) {
+            set_alert('warning', 'Vui lòng chọn ít nhất một gói đăng ký và một thao tác.');
+            redirect(admin_url('kt_saas/subscriptions'));
+        }
+
+        $allowed = ['trial', 'active', 'grace', 'suspended', 'cancelled', 'terminated'];
+        if (!in_array($action, $allowed, true)) {
+            set_alert('warning', 'Thao tác bulk không hợp lệ.');
+            redirect(admin_url('kt_saas/subscriptions'));
+        }
+
+        $processed = 0;
+        $failed = 0;
+        foreach ($ids as $id) {
+            if ($this->Kt_saas_model->set_subscription_status($id, $action)) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        $this->Kt_saas_model->log_activity('subscription.bulk_action', $failed > 0 ? 'warning' : 'info', [
+            'action'    => $action,
+            'ids'       => $ids,
+            'processed' => $processed,
+            'failed'    => $failed,
+        ]);
+
+        $this->setBulkAlert($processed, $failed, 'Đã xử lý gói đăng ký hàng loạt.');
+        redirect(admin_url('kt_saas/subscriptions'));
+    }
+
+    public function invoices()
+    {
+        $this->requireCapability('kt_saas_manage_billing');
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/PaymentCollectionService.php');
+
+        $payments = new PaymentCollectionService();
+        $sepayEnabled = $this->app_modules->is_active('kt_sepay');
+        $sepayGateway = null;
+        if ($sepayEnabled) {
+            $this->load->helper('kt_sepay/kt_sepay');
+            $this->load->model('kt_sepay/Kt_sepay_model');
+            $sepayEnabled = $this->Kt_sepay_model->is_active();
+            if ($sepayEnabled) {
+                $this->load->library('kt_sepay/Kt_sepay_gateway');
+                $sepayGateway = $this->kt_sepay_gateway;
+            }
+        }
+
+        $invoices = $this->Kt_saas_model->get_invoices();
+        foreach ($invoices as &$invoice) {
+            $invoice['checkout_url'] = !in_array((string) ($invoice['status'] ?? ''), ['paid', 'cancelled'], true)
+                ? $payments->getCheckoutUrl($invoice)
+                : '';
+            $invoice['sepay_url'] = '';
+            if (
+                $sepayEnabled
+                && $sepayGateway
+                && strtoupper((string) ($invoice['currency'] ?? '')) === 'VND'
+                && !in_array((string) ($invoice['status'] ?? ''), ['paid', 'cancelled'], true)
+            ) {
+                $tenant = $this->Kt_saas_model->get_tenant((int) ($invoice['tenant_id'] ?? 0));
+                if ($tenant) {
+                    $requestId = $sepayGateway->createKtSaasInvoiceRequest($invoice, $tenant, [
+                        'source' => 'landlord_billing',
+                    ]);
+                    if ($requestId > 0) {
+                        $request = $this->Kt_sepay_model->get_payment_request($requestId);
+                        if ($request) {
+                            $invoice['sepay_url'] = site_url('kt_sepay/pay/' . (int) $request['id'] . '/' . rawurlencode((string) $request['access_token']));
+                        }
+                    }
+                }
+            }
+        }
+        unset($invoice);
+
+        $data['title'] = _l('kt_saas_invoices');
+        $data['invoices'] = $invoices;
+        $data['statuses'] = kt_saas_invoice_statuses();
+        $data['sepay_enabled'] = $sepayEnabled;
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/invoices', $data);
+    }
+
+    public function bulk_invoices()
+    {
+        $this->requireCapability('kt_saas_manage_billing');
+        $this->requirePost();
+
+        $action = trim((string) $this->input->post('bulk_action'));
+        $ids = $this->normalizeBulkIds($this->input->post('ids'));
+        if ($action !== 'mark_paid' || empty($ids)) {
+            set_alert('warning', 'Vui lòng chọn ít nhất một hóa đơn và một thao tác hợp lệ.');
+            redirect(admin_url('kt_saas/invoices'));
+        }
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/BillingEngineService.php');
+        $service = new BillingEngineService();
+
+        $processed = 0;
+        $failed = 0;
+        foreach ($ids as $id) {
+            $invoice = $this->Kt_saas_model->get_invoice($id);
+            if (!$invoice || in_array((string) ($invoice['status'] ?? ''), ['paid', 'cancelled'], true)) {
+                $failed++;
+                continue;
+            }
+
+            $result = $service->markInvoicePaid($invoice, [
+                'gateway'           => 'manual',
+                'payment_reference' => 'LANDLORD-BULK-' . date('YmdHis') . '-' . $id,
+                'amount'            => (float) $invoice['grand_total'],
+                'currency'          => $invoice['currency'],
+            ]);
+
+            if (!empty($result['success'])) {
+                $processed++;
+            } else {
+                $failed++;
+            }
+        }
+
+        $this->Kt_saas_model->log_activity('invoice.bulk_action', $failed > 0 ? 'warning' : 'info', [
+            'action'    => $action,
+            'ids'       => $ids,
+            'processed' => $processed,
+            'failed'    => $failed,
+        ]);
+
+        $this->setBulkAlert($processed, $failed, 'Đã xử lý hóa đơn hàng loạt.');
+        redirect(admin_url('kt_saas/invoices'));
+    }
+
+    public function payments()
+    {
+        $this->requireCapability('kt_saas_manage_billing');
+
+        $data['title'] = _l('kt_saas_payments');
+        $data['payments'] = $this->Kt_saas_model->get_payments();
+        $data['statuses'] = kt_saas_payment_statuses();
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/payments', $data);
+    }
+
+    public function mark_invoice_paid($invoiceId)
+    {
+        $this->requireCapability('kt_saas_manage_billing');
+
+        $invoice = $this->Kt_saas_model->get_invoice((int) $invoiceId);
+        if (!$invoice) {
+            show_404();
+        }
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/BillingEngineService.php');
+        $service = new BillingEngineService();
+        $result = $service->markInvoicePaid($invoice, [
+            'gateway'           => 'manual',
+            'payment_reference' => 'LANDLORD-' . date('YmdHis') . '-' . (int) $invoice['id'],
+            'amount'            => (float) $invoice['grand_total'],
+            'currency'          => $invoice['currency'],
+        ]);
+
+        set_alert(!empty($result['success']) ? 'success' : 'warning', !empty($result['success']) ? 'Đã ghi nhận hóa đơn đã thanh toán và kích hoạt lại tenant nếu đủ điều kiện.' : ($result['message'] ?? 'Không thể đánh dấu hóa đơn đã thanh toán.'));
+        redirect(admin_url('kt_saas/invoices'));
+    }
+
+    public function domains($id = null)
+    {
+        $this->requireCapability('kt_saas_manage_domains');
+
+        if ($this->input->post()) {
+            $result = $this->Kt_saas_model->save_domain($this->input->post(), $id ?: null);
+            $this->flashResult($result, 'Đã lưu tên miền.');
+            redirect(admin_url('kt_saas/domains'));
+        }
+
+        $data['title'] = _l('kt_saas_domains');
+        $data['domains'] = $this->Kt_saas_model->get_domains();
+        $data['tenants'] = $this->Kt_saas_model->get_tenants();
+        $data['edit_domain'] = $id ? $this->Kt_saas_model->get_domain($id) : null;
+        $data['readiness_statuses'] = kt_saas_domain_readiness_statuses();
+        $data['domain_statuses'] = kt_saas_domain_statuses();
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/domains', $data);
+    }
+
+    public function modules()
+    {
+        $this->requireCapability('kt_saas_manage_modules');
+        $this->Kt_saas_model->sync_module_catalog();
+        $this->Kt_saas_model->rebuild_module_registries();
+
+        if ($this->input->post('sync_catalog')) {
+            $count = $this->Kt_saas_model->sync_module_catalog();
+            $this->Kt_saas_model->rebuild_module_registries();
+            set_alert('success', 'Đã đồng bộ danh mục ứng dụng. Số bản ghi đã cập nhật: ' . (int) $count . '.');
+            redirect(admin_url('kt_saas/modules'));
+        }
+
+        if ($this->input->post('catalog_submit')) {
+            $moduleName = (string) $this->input->post('module_name');
+            $isActive = $this->input->post('is_global_active') === '1';
+            $result = $this->Kt_saas_model->set_module_catalog_status($moduleName, $isActive);
+            set_alert(!empty($result['success']) ? 'success' : 'warning', !empty($result['success']) ? 'Đã cập nhật trạng thái danh mục ứng dụng.' : ($result['message'] ?? 'Không thể cập nhật danh mục ứng dụng.'));
+            redirect(admin_url('kt_saas/modules'));
+        }
+
+        if ($this->input->post('tenant_override_submit')) {
+            $tenantId = (int) $this->input->post('tenant_id');
+            $moduleName = (string) $this->input->post('module_name');
+            $mode = (string) $this->input->post('override_mode');
+            $result = $this->Kt_saas_model->save_tenant_module_override($tenantId, $moduleName, $mode);
+            set_alert(!empty($result['success']) ? 'success' : 'warning', !empty($result['success']) ? 'Đã cập nhật thiết lập ứng dụng riêng cho tenant.' : ($result['message'] ?? 'Không thể cập nhật thiết lập ứng dụng riêng cho tenant.'));
+            redirect(admin_url('kt_saas/modules?tenant_id=' . $tenantId));
+        }
+
+        $tenantId = (int) $this->input->get('tenant_id');
+        $data['title'] = _l('kt_saas_modules');
+        $data['catalog'] = $this->Kt_saas_model->get_module_catalog();
+        $data['tenants'] = $this->Kt_saas_model->get_tenants();
+        $data['selected_tenant_id'] = $tenantId;
+        $data['tenant_modules'] = $tenantId > 0 ? $this->Kt_saas_model->get_tenant_module_registry($tenantId) : [];
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/modules', $data);
+    }
+
+    public function backups()
+    {
+        $this->requireCapability('kt_saas_manage_backups');
+
+        $tenantId = (int) $this->input->get('tenant_id');
+        $data['title'] = _l('kt_saas_backups');
+        $data['tenants'] = $this->Kt_saas_model->get_tenants();
+        $data['selected_tenant_id'] = $tenantId;
+        $data['backups'] = $this->Kt_saas_model->get_backups($tenantId > 0 ? $tenantId : null);
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/backups', $data);
+    }
+
+    public function create_backup($tenantId)
+    {
+        $this->requireCapability('kt_saas_manage_backups');
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantBackupService.php');
+        $service = new TenantBackupService();
+        $result = $service->createBackup((int) $tenantId);
+        set_alert(!empty($result['success']) ? 'success' : 'warning', !empty($result['success']) ? 'Đã tạo bản sao lưu tenant.' : ($result['message'] ?? 'Không thể tạo bản sao lưu tenant.'));
+        redirect(admin_url('kt_saas/backups?tenant_id=' . (int) $tenantId));
+    }
+
+    public function restore_backup($backupId)
+    {
+        $this->requireCapability('kt_saas_manage_backups');
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantBackupService.php');
+        $service = new TenantBackupService();
+        $result = $service->restoreBackup((int) $backupId);
+        $tenantId = (int) ($result['tenant_id'] ?? 0);
+        set_alert(!empty($result['success']) ? 'success' : 'warning', !empty($result['success']) ? 'Đã khôi phục bản sao lưu tenant.' : ($result['message'] ?? 'Không thể khôi phục bản sao lưu tenant.'));
+        redirect(admin_url('kt_saas/backups' . ($tenantId > 0 ? '?tenant_id=' . $tenantId : '')));
+    }
+
+    public function download_backup($backupId)
+    {
+        $this->requireCapability('kt_saas_manage_backups');
+
+        $backup = $this->Kt_saas_model->get_backup((int) $backupId);
+        if (!$backup || empty($backup['file_path'])) {
+            show_404();
+        }
+
+        $path = $backup['file_path'];
+        if (!is_file($path)) {
+            show_404();
+        }
+
+        $this->load->helper('download');
+        force_download(basename($path), file_get_contents($path));
+    }
+
+    public function verify_domain($id)
+    {
+        $this->requireCapability('kt_saas_manage_domains');
+
+        $domain = $this->Kt_saas_model->get_domain((int) $id);
+        if (!$domain) {
+            show_404();
+        }
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/DomainVerificationService.php');
+        $service = new DomainVerificationService();
+        $result = $service->verify($domain);
+
+        $this->Kt_saas_model->save_domain_verification((int) $id, $result);
+
+        if (!empty($result['success'])) {
+            $message = 'Đã kiểm tra tên miền. Mức sẵn sàng: ' . strtoupper((string) $result['readiness_status']) . ', DNS: ' . strtoupper((string) $result['dns_status']) . ', SSL: ' . strtoupper((string) $result['ssl_status']) . '.';
+            set_alert(($result['readiness_status'] ?? '') === 'ready' ? 'success' : 'warning', $message);
+        } else {
+            set_alert('warning', $result['message'] ?? 'Kiểm tra tên miền thất bại.');
+        }
+
+        redirect(admin_url('kt_saas/domains'));
+    }
+
+    public function verify_domains()
+    {
+        $this->requireCapability('kt_saas_manage_domains');
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/DomainVerificationService.php');
+        $service = new DomainVerificationService();
+
+        $domains = $this->Kt_saas_model->get_domains();
+        $verified = 0;
+        $warnings = 0;
+
+        foreach ($domains as $domain) {
+            $result = $service->verify($domain);
+            $this->Kt_saas_model->save_domain_verification((int) $domain['id'], $result);
+
+            if (($result['readiness_status'] ?? '') === 'ready') {
+                $verified++;
+            } else {
+                $warnings++;
+            }
+        }
+
+        set_alert($warnings === 0 ? 'success' : 'warning', 'Đã kiểm tra toàn bộ tên miền. Sẵn sàng: ' . $verified . ', cần xem lại: ' . $warnings . '.');
+        redirect(admin_url('kt_saas/domains'));
+    }
+
+    public function provision_jobs()
+    {
+        $this->requireCapability('kt_saas_run_provisioning');
+
+        $data['title'] = _l('kt_saas_provision_jobs');
+        $data['jobs'] = $this->Kt_saas_model->get_provision_jobs();
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/provision_jobs', $data);
+    }
+
+    public function activity_logs()
+    {
+        $this->requireCapability('kt_saas_view');
+
+        $data['title'] = _l('kt_saas_activity_logs');
+        $data['logs'] = $this->Kt_saas_model->get_recent_activity_logs(200);
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/activity_logs', $data);
+    }
+
+    public function retry_provision_job($id)
+    {
+        $this->requireCapability('kt_saas_run_provisioning');
+        $success = $this->Kt_saas_model->retry_provision_job((int) $id);
+        set_alert($success ? 'success' : 'warning', $success ? 'Đã đưa lại tác vụ cấp phát vào hàng đợi.' : 'Không thể đưa lại tác vụ cấp phát vào hàng đợi.');
+        redirect(admin_url('kt_saas/provision_jobs'));
+    }
+
+    public function run_provision_job($id)
+    {
+        $this->requireCapability('kt_saas_run_provisioning');
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'provisioning/ProvisioningJobRunner.php');
+        $job = $this->Kt_saas_model->mark_provision_job_running((int) $id);
+        if (!$job) {
+            set_alert('warning', 'Không tìm thấy tác vụ cấp phát.');
+            redirect(admin_url('kt_saas/provision_jobs'));
+        }
+
+        $runner = new ProvisioningJobRunner();
+        $result = $runner->execute($job);
+        if (!empty($result['success'])) {
+            $this->Kt_saas_model->mark_provision_job_done((int) $id, $result);
+            set_alert('success', 'Tác vụ cấp phát đã hoàn tất thành công.');
+            redirect(admin_url('kt_saas/provision_jobs'));
+        }
+
+        $this->Kt_saas_model->mark_provision_job_failed((int) $id, $result['message'] ?? 'Cấp phát thất bại.', $result);
+        set_alert('warning', $result['message'] ?? 'Cấp phát thất bại.');
+        redirect(admin_url('kt_saas/provision_jobs'));
+    }
+
+    public function queue_provision_job($tenantId)
+    {
+        $this->requireCapability('kt_saas_run_provisioning');
+        $tenant = $this->Kt_saas_model->get_tenant((int) $tenantId);
+        if (!$tenant) {
+            show_404();
+        }
+
+        $this->Kt_saas_model->create_provision_job((int) $tenantId, 'provision_tenant', [
+            'tenant_id' => (int) $tenantId,
+            'tenant_code' => $tenant['tenant_code'],
+        ]);
+        set_alert('success', 'Đã đưa tác vụ cấp phát vào hàng đợi.');
+        redirect(admin_url('kt_saas/provision_jobs'));
+    }
+
+    public function settings()
+    {
+        $this->requireCapability('kt_saas_manage_settings');
+
+        if ($this->input->post()) {
+            $this->Kt_saas_model->save_settings($this->input->post());
+            set_alert('success', 'Đã lưu cấu hình.');
+            redirect(admin_url('kt_saas/settings'));
+        }
+
+        $data['title'] = _l('kt_saas_settings');
+        $this->load->view(KT_SAAS_MODULE . '/dashboard/settings', $data);
+    }
+
+    public function tenant_subscription()
+    {
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+
+        $tenant = kt_saas_current_tenant();
+        $service = new TenantEntitlementService();
+        $profile = $service->getRuntimeProfile($tenant);
+        $usage = $service->getTenantUsageSnapshot($tenant);
+        $subscription = $this->Kt_saas_model->get_tenant_subscription_profile((int) $tenant['id']);
+
+        $data['title'] = _l('kt_saas_my_subscription');
+        $data['tenant'] = $tenant;
+        $data['subscription'] = $subscription;
+        $data['profile'] = $profile;
+        $data['usage'] = $usage;
+        $data['public_plans'] = $this->Kt_saas_model->get_public_plans();
+        $metadata = json_decode((string) ($subscription['metadata_json'] ?? ''), true);
+        $data['scheduled_plan_change'] = is_array($metadata) && !empty($metadata['scheduled_plan_change']) && is_array($metadata['scheduled_plan_change'])
+            ? $metadata['scheduled_plan_change']
+            : null;
+        $data['open_plan_change_requests'] = !empty($subscription['id'])
+            ? $this->Kt_saas_model->get_open_tenant_plan_change_requests((int) $tenant['id'], (int) $subscription['id'])
+            : [];
+
+        $this->load->view(KT_SAAS_MODULE . '/tenant/subscription', $data);
+    }
+
+    public function tenant_request_renewal()
+    {
+        if (strtolower((string) $this->input->method()) !== 'post') {
+            redirect(admin_url('kt_saas/tenant_subscription'));
+        }
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/BillingEngineService.php');
+
+        $tenant = kt_saas_current_tenant();
+        $subscription = $this->Kt_saas_model->get_tenant_subscription_profile((int) $tenant['id']);
+        if (!$subscription || empty($subscription['plan_id'])) {
+            set_alert('warning', 'Không tìm thấy hồ sơ gói đăng ký đang hoạt động.');
+            redirect(admin_url('kt_saas/tenant_subscription'));
+        }
+
+        $plan = $this->Kt_saas_model->get_plan((int) $subscription['plan_id']);
+        if (!$plan) {
+            set_alert('warning', 'Gói hiện tại không còn khả dụng.');
+            redirect(admin_url('kt_saas/tenant_subscription'));
+        }
+
+        $service = new BillingEngineService();
+        $result = $service->createSubscriptionInvoice($tenant, $subscription, $plan, [
+            'source' => 'tenant_portal',
+            'reason' => 'subscription_renewal',
+        ]);
+
+        set_alert(!empty($result['success']) ? 'success' : 'warning', !empty($result['created']) ? _l('kt_saas_renewal_invoice_created') : _l('kt_saas_open_renewal_invoice_exists'));
+        redirect(admin_url('kt_saas/tenant_billing'));
+    }
+
+    public function tenant_request_plan_change($planId)
+    {
+        if (strtolower((string) $this->input->method()) !== 'post') {
+            redirect(admin_url('kt_saas/tenant_subscription'));
+        }
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/BillingEngineService.php');
+
+        $tenant = kt_saas_current_tenant();
+        $subscription = $this->Kt_saas_model->get_tenant_subscription_profile((int) $tenant['id']);
+        if (!$subscription || empty($subscription['id'])) {
+            set_alert('warning', 'Không tìm thấy hồ sơ gói đăng ký đang hoạt động.');
+            redirect(admin_url('kt_saas/tenant_subscription'));
+        }
+
+        $targetPlan = $this->Kt_saas_model->get_plan((int) $planId);
+        if (!$targetPlan || (int) ($targetPlan['is_active'] ?? 0) !== 1 || (int) ($targetPlan['is_public'] ?? 0) !== 1) {
+            set_alert('warning', 'Gói dịch vụ được yêu cầu hiện không khả dụng.');
+            redirect(admin_url('kt_saas/tenant_subscription'));
+        }
+
+        if ((int) $targetPlan['id'] === (int) ($subscription['plan_id'] ?? 0)) {
+            set_alert('warning', 'Bạn đang sử dụng chính gói này.');
+            redirect(admin_url('kt_saas/tenant_subscription'));
+        }
+
+        $service = new BillingEngineService();
+        $result = $service->createPlanChangeRequestInvoice($tenant, $subscription, $targetPlan, [
+            'source' => 'tenant_portal',
+            'requested_by_tenant_admin' => get_staff_user_id(),
+        ]);
+
+        if (!empty($result['scheduled'])) {
+            set_alert('success', _l('kt_saas_plan_downgrade_scheduled'));
+            redirect(admin_url('kt_saas/tenant_subscription'));
+        }
+
+        set_alert(!empty($result['success']) ? 'success' : 'warning', !empty($result['created']) ? _l('kt_saas_plan_change_requested') : _l('kt_saas_open_plan_change_request_exists'));
+        redirect(admin_url('kt_saas/tenant_billing'));
+    }
+
+    public function tenant_billing()
+    {
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/PaymentCollectionService.php');
+
+        $tenant = kt_saas_current_tenant();
+        $payments = new PaymentCollectionService();
+        $sepayEnabled = $this->app_modules->is_active('kt_sepay');
+        $sepayGateway = null;
+        if ($sepayEnabled) {
+            $this->load->helper('kt_sepay/kt_sepay');
+            $this->load->model('kt_sepay/Kt_sepay_model');
+            $sepayEnabled = $this->Kt_sepay_model->is_active();
+            if ($sepayEnabled) {
+                $this->load->library('kt_sepay/Kt_sepay_gateway');
+                $sepayGateway = $this->kt_sepay_gateway;
+            }
+        }
+
+        $invoices = $this->Kt_saas_model->get_tenant_billing_invoices((int) $tenant['id'], 100);
+        foreach ($invoices as &$invoice) {
+            $invoice['checkout_url'] = !in_array((string) ($invoice['status'] ?? ''), ['paid', 'cancelled'], true)
+                ? $payments->getCheckoutUrl($invoice, $tenant)
+                : '';
+            $invoice['sepay_url'] = '';
+            if (
+                $sepayEnabled
+                && $sepayGateway
+                && strtoupper((string) ($invoice['currency'] ?? '')) === 'VND'
+                && !in_array((string) ($invoice['status'] ?? ''), ['paid', 'cancelled'], true)
+            ) {
+                $requestId = $sepayGateway->createKtSaasInvoiceRequest($invoice, $tenant, [
+                    'source' => 'tenant_portal',
+                ]);
+                if ($requestId > 0) {
+                    $invoice['sepay_url'] = admin_url('kt_sepay/tenant_payment/' . $requestId);
+                }
+            }
+        }
+        unset($invoice);
+
+        $data['title'] = _l('kt_saas_my_billing');
+        $data['tenant'] = $tenant;
+        $data['invoices'] = $invoices;
+        $data['payments'] = $this->Kt_saas_model->get_tenant_billing_payments((int) $tenant['id'], 100);
+        $data['webhook_url_manual'] = $payments->getWebhookUrl('manual');
+        $data['sepay_enabled'] = $sepayEnabled;
+
+        $this->load->view(KT_SAAS_MODULE . '/tenant/billing', $data);
+    }
+
+    public function tenant_usage()
+    {
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+
+        $tenant = kt_saas_current_tenant();
+        $service = new TenantEntitlementService();
+        $profile = $service->getRuntimeProfile($tenant);
+        $usage = $service->getTenantUsageSnapshot($tenant);
+
+        $data['title'] = _l('kt_saas_my_usage');
+        $data['tenant'] = $tenant;
+        $data['profile'] = $profile;
+        $data['usage'] = $usage;
+        $data['history'] = $this->Kt_saas_model->get_tenant_usage_history((int) $tenant['id'], 100);
+
+        $this->load->view(KT_SAAS_MODULE . '/tenant/usage', $data);
+    }
+
+    public function tenant_settings()
+    {
+        $tenant = kt_saas_current_tenant();
+        $canEditBranding = kt_saas_workspace_feature_allowed('workspace.branding.edit', true);
+        $canEditFinance = kt_saas_workspace_feature_allowed('workspace.finance.edit', true);
+        $canEditFinanceAdvanced = kt_saas_workspace_feature_allowed('workspace.finance.advanced.edit', true);
+        $canEditMailIdentity = kt_saas_workspace_feature_allowed('workspace.mail.identity.edit', true);
+        $canEditNotifications = kt_saas_workspace_feature_allowed('workspace.notifications.edit', true);
+
+        if ($this->input->post()) {
+            $uploadResult = $this->Kt_saas_model->handle_tenant_workspace_branding_uploads((int) $tenant['id']);
+            if (!empty($uploadResult['message'])) {
+                set_alert(!empty($uploadResult['success']) ? 'success' : 'warning', $uploadResult['message']);
+            }
+        }
+
+        if ($this->input->post()) {
+            $result = $this->Kt_saas_model->save_tenant_workspace_settings((int) $tenant['id'], $this->input->post());
+            $this->flashResult($result, 'Đã lưu cài đặt workspace của tenant.');
+            redirect(admin_url('kt_saas/tenant_settings'));
+        }
+
+        $data['title'] = 'Workspace Settings';
+        $data['tenant'] = $tenant;
+        $data['settings'] = $this->Kt_saas_model->get_tenant_workspace_settings((int) $tenant['id']);
+        $data['staff_members'] = $this->Kt_saas_model->get_active_tenant_staff_members();
+        $data['form_options'] = $this->Kt_saas_model->get_tenant_workspace_form_options();
+        $data['can_edit_branding'] = $canEditBranding;
+        $data['can_edit_finance'] = $canEditFinance;
+        $data['can_edit_finance_advanced'] = $canEditFinanceAdvanced;
+        $data['can_edit_mail_identity'] = $canEditMailIdentity;
+        $data['can_edit_notifications'] = $canEditNotifications;
+        $data['quick_links'] = array_values(array_filter([
+            ['label' => _l('kt_saas_my_subscription'), 'href' => admin_url('kt_saas/tenant_subscription'), 'visible' => is_admin()],
+            ['label' => _l('kt_saas_my_billing'), 'href' => admin_url('kt_saas/tenant_billing'), 'visible' => is_admin()],
+            ['label' => _l('kt_saas_my_usage'), 'href' => admin_url('kt_saas/tenant_usage'), 'visible' => is_admin()],
+            ['label' => _l('kt_saas_users_roles'), 'href' => admin_url('kt_saas/tenant_governance'), 'visible' => function_exists('kt_saas_can_view_workspace_governance') && kt_saas_can_view_workspace_governance()],
+            ['label' => _l('kt_saas_activity_logs'), 'href' => admin_url('kt_saas/tenant_activity_logs'), 'visible' => true],
+        ], static function ($link) {
+            return !empty($link['visible']);
+        }));
+
+        $this->load->view(KT_SAAS_MODULE . '/tenant/settings', $data);
+    }
+
+    public function tenant_activity_logs()
+    {
+        $tenant = kt_saas_current_tenant();
+        $filters = [
+            'event_key' => trim((string) $this->input->get('event_key')),
+            'severity'  => trim((string) $this->input->get('severity')),
+        ];
+
+        $data['title'] = _l('kt_saas_activity_logs');
+        $data['tenant'] = $tenant;
+        $data['filters'] = $filters;
+        $data['logs'] = $this->Kt_saas_model->get_tenant_activity_logs((int) ($tenant['id'] ?? 0), $filters, 200);
+        $this->load->view(KT_SAAS_MODULE . '/tenant/activity_logs', $data);
+    }
+
+    public function tenant_governance()
+    {
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+        $this->requireTenantWorkspaceFeature('workspace.governance.view');
+
+        $tenant = kt_saas_current_tenant();
+        $service = new TenantEntitlementService();
+        $profile = $service->getRuntimeProfile($tenant);
+        $usage = $service->getTenantUsageSnapshot($tenant);
+
+        $this->load->model('roles_model');
+
+        $summary = $this->Kt_saas_model->get_tenant_governance_summary();
+        $staffMembers = $this->Kt_saas_model->get_active_tenant_staff_members();
+        $roles = $this->Kt_saas_model->get_tenant_roles();
+        $roleUsage = $this->Kt_saas_model->get_tenant_role_usage_counts();
+
+        foreach ($roles as &$role) {
+            $role['assigned_staff_count'] = (int) ($roleUsage[(int) ($role['roleid'] ?? 0)] ?? 0);
+            $permissions = [];
+            if (!empty($role['permissions'])) {
+                $decoded = @unserialize($role['permissions']);
+                if (is_array($decoded)) {
+                    $permissions = $decoded;
+                }
+            }
+
+            $capabilityCount = 0;
+            foreach ($permissions as $featureCapabilities) {
+                if (is_array($featureCapabilities)) {
+                    $capabilityCount += count($featureCapabilities);
+                }
+            }
+
+            $role['capability_count'] = $capabilityCount;
+        }
+        unset($role);
+
+        $data['title'] = _l('kt_saas_users_roles');
+        $data['tenant'] = $tenant;
+        $data['profile'] = $profile;
+        $data['usage'] = $usage;
+        $data['summary'] = $summary;
+        $data['staff_members'] = $staffMembers;
+        $data['roles'] = $roles;
+        $data['staff_limit'] = $profile['limits']['staff'] ?? null;
+        $data['can_manage_governance'] = kt_saas_can_manage_workspace_governance();
+        $data['can_manage_roles'] = kt_saas_can_manage_workspace_governance() && kt_saas_workspace_feature_allowed('workspace.roles.manage', true);
+        $data['can_view_staff_directory'] = staff_can('view', 'staff');
+        $data['can_create_staff'] = staff_can('create', 'staff');
+        $data['can_manage_departments'] = kt_saas_can_manage_workspace_governance() && kt_saas_workspace_feature_allowed('workspace.departments.manage', true);
+        $data['can_view_departments'] = kt_saas_workspace_feature_allowed('workspace.departments.manage', true);
+        $this->load->view(KT_SAAS_MODULE . '/tenant/governance', $data);
+    }
+
+    public function tenant_role($id = '')
+    {
+        $this->requireTenantWorkspaceFeature('workspace.governance.view');
+        $tenant = kt_saas_current_tenant();
+        $this->load->model('roles_model');
+
+        $id = is_numeric($id) ? (int) $id : 0;
+        if ($id === 0 && !kt_saas_can_manage_workspace_governance()) {
+            access_denied(KT_SAAS_MODULE);
+        }
+
+        if ($this->input->post()) {
+            $this->requireTenantWorkspaceGovernanceManageAccess();
+            $this->requireTenantWorkspaceFeature('workspace.roles.manage');
+
+            if ($id === 0) {
+                $currentRoles = count($this->Kt_saas_model->get_tenant_roles());
+                $service = new TenantEntitlementService();
+                $service->assertWithinLimit('roles', $currentRoles + 1);
+                $roleId = $this->roles_model->add($this->input->post());
+                if ($roleId) {
+                    $service->persistUsageSnapshot($tenant);
+                    $this->Kt_saas_model->log_activity('tenant.role_created', 'info', [
+                        'tenant_id' => (int) ($tenant['id'] ?? 0),
+                        'role_id'   => (int) $roleId,
+                        'name'      => trim((string) $this->input->post('name')),
+                    ], (int) ($tenant['id'] ?? 0));
+                    set_alert('success', _l('added_successfully', _l('role')));
+                    redirect(admin_url('kt_saas/tenant_role/' . $roleId));
+                }
+            } else {
+                $success = $this->roles_model->update($this->input->post(), $id);
+                if ($success) {
+                    $service = new TenantEntitlementService();
+                    $service->persistUsageSnapshot($tenant);
+                    $this->Kt_saas_model->log_activity('tenant.role_updated', 'info', [
+                        'tenant_id' => (int) ($tenant['id'] ?? 0),
+                        'role_id'   => (int) $id,
+                        'name'      => trim((string) $this->input->post('name')),
+                    ], (int) ($tenant['id'] ?? 0));
+                    set_alert('success', _l('updated_successfully', _l('role')));
+                }
+                redirect(admin_url('kt_saas/tenant_role/' . $id));
+            }
+        }
+
+        $data['tenant'] = $tenant;
+        $data['governance_url'] = admin_url('kt_saas/tenant_governance');
+        $data['can_manage_role'] = kt_saas_can_manage_workspace_governance();
+        if ($id === 0) {
+            $data['title'] = _l('add_new', _l('role'));
+        } else {
+            $role = $this->roles_model->get($id);
+            if (!$role) {
+                show_404();
+            }
+
+            $data['role'] = $role;
+            $data['role_staff'] = $this->roles_model->get_role_staff($id);
+            $data['title'] = _l('edit', _l('role')) . ' ' . $role->name;
+        }
+
+        $this->load->view(KT_SAAS_MODULE . '/tenant/role', $data);
+    }
+
+    public function tenant_departments()
+    {
+        $this->requireTenantWorkspaceFeature('workspace.governance.view');
+        $tenant = kt_saas_current_tenant();
+        $this->load->model('departments_model');
+
+        if ($this->input->post()) {
+            $this->requireTenantWorkspaceGovernanceManageAccess();
+            $this->requireTenantWorkspaceFeature('workspace.departments.manage');
+
+            $payload = $this->input->post();
+            $payload['password'] = $this->input->post('password', false);
+
+            if (isset($payload['fakeusernameremembered']) || isset($payload['fakepasswordremembered'])) {
+                unset($payload['fakeusernameremembered'], $payload['fakepasswordremembered']);
+            }
+
+            $departmentId = (int) ($payload['id'] ?? 0);
+            $success = false;
+            if ($departmentId > 0) {
+                unset($payload['id']);
+                $success = $this->departments_model->update($payload, $departmentId);
+                if ($success) {
+                    require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+                    $service = new TenantEntitlementService();
+                    $service->persistUsageSnapshot($tenant);
+                    $this->Kt_saas_model->log_activity('tenant.department_updated', 'info', [
+                        'tenant_id'     => (int) ($tenant['id'] ?? 0),
+                        'department_id' => $departmentId,
+                        'name'          => trim((string) ($payload['name'] ?? '')),
+                    ], (int) ($tenant['id'] ?? 0));
+                    set_alert('success', _l('updated_successfully', _l('department')));
+                }
+            } else {
+                require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+                $service = new TenantEntitlementService();
+                $currentDepartments = is_array($this->departments_model->get()) ? count($this->departments_model->get()) : 0;
+                $service->assertWithinLimit('departments', $currentDepartments + 1);
+                $departmentId = (int) $this->departments_model->add($payload);
+                $success = $departmentId > 0;
+                if ($success) {
+                    $service->persistUsageSnapshot($tenant);
+                    $this->Kt_saas_model->log_activity('tenant.department_created', 'info', [
+                        'tenant_id'     => (int) ($tenant['id'] ?? 0),
+                        'department_id' => $departmentId,
+                        'name'          => trim((string) ($payload['name'] ?? '')),
+                    ], (int) ($tenant['id'] ?? 0));
+                    set_alert('success', _l('added_successfully', _l('department')));
+                }
+            }
+
+            if (!$success) {
+                set_alert('warning', _l('problem_updating', _l('department_lowercase')));
+            }
+
+            redirect(admin_url('kt_saas/tenant_departments'));
+        }
+
+        $editId = (int) $this->input->get('edit');
+        $departments = $this->departments_model->get();
+        $departmentUsage = [];
+        $staffMembers = $this->Kt_saas_model->get_active_tenant_staff_members();
+        foreach ($staffMembers as $staffMember) {
+            $assignedDepartments = $this->departments_model->get_staff_departments((int) ($staffMember['staffid'] ?? 0), true);
+            foreach ($assignedDepartments as $departmentId) {
+                $departmentId = (int) $departmentId;
+                $departmentUsage[$departmentId] = (int) ($departmentUsage[$departmentId] ?? 0) + 1;
+            }
+        }
+
+        $editDepartment = null;
+        if ($editId > 0) {
+            $editDepartment = $this->departments_model->get($editId);
+        }
+
+        $data['title'] = _l('departments');
+        $data['tenant'] = $tenant;
+        $data['departments'] = is_array($departments) ? $departments : [];
+        $data['department_usage'] = $departmentUsage;
+        $data['edit_department'] = $editDepartment;
+        $data['can_manage_departments'] = kt_saas_can_manage_workspace_governance();
+        $this->load->view(KT_SAAS_MODULE . '/tenant/departments', $data);
+    }
+
+    public function tenant_delete_role($id)
+    {
+        $this->requirePost();
+        $this->requireTenantWorkspaceGovernanceManageAccess();
+        $this->requireTenantWorkspaceFeature('workspace.roles.manage');
+
+        $tenant = kt_saas_current_tenant();
+        $this->load->model('roles_model');
+
+        $id = (int) $id;
+        if ($id <= 0) {
+            redirect(admin_url('kt_saas/tenant_governance'));
+        }
+
+        $response = $this->roles_model->delete($id);
+        if (is_array($response) && isset($response['referenced'])) {
+            set_alert('warning', _l('is_referenced', _l('role_lowercase')));
+        } elseif ($response === true) {
+            require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+            $service = new TenantEntitlementService();
+            $service->persistUsageSnapshot($tenant);
+            $this->Kt_saas_model->log_activity('tenant.role_deleted', 'warning', [
+                'tenant_id' => (int) ($tenant['id'] ?? 0),
+                'role_id'   => $id,
+            ], (int) ($tenant['id'] ?? 0));
+            set_alert('success', _l('deleted', _l('role')));
+        } else {
+            set_alert('warning', _l('problem_deleting', _l('role_lowercase')));
+        }
+
+        redirect(admin_url('kt_saas/tenant_governance'));
+    }
+
+    public function tenant_delete_department($id)
+    {
+        $this->requirePost();
+        $this->requireTenantWorkspaceGovernanceManageAccess();
+        $this->requireTenantWorkspaceFeature('workspace.departments.manage');
+
+        $tenant = kt_saas_current_tenant();
+        $this->load->model('departments_model');
+
+        $id = (int) $id;
+        if ($id <= 0) {
+            redirect(admin_url('kt_saas/tenant_departments'));
+        }
+
+        $response = $this->departments_model->delete($id);
+        if (is_array($response) && isset($response['referenced'])) {
+            set_alert('warning', _l('is_referenced', _l('department_lowercase')));
+        } elseif ($response === true) {
+            require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+            $service = new TenantEntitlementService();
+            $service->persistUsageSnapshot($tenant);
+            $this->Kt_saas_model->log_activity('tenant.department_deleted', 'warning', [
+                'tenant_id'     => (int) ($tenant['id'] ?? 0),
+                'department_id' => $id,
+            ], (int) ($tenant['id'] ?? 0));
+            set_alert('success', _l('deleted', _l('department')));
+        } else {
+            set_alert('warning', _l('problem_deleting', _l('department_lowercase')));
+        }
+
+        redirect(admin_url('kt_saas/tenant_departments'));
+    }
+
+    public function tenant_remove_company_logo($type = '')
+    {
+        $this->requirePost();
+        $this->requireTenantWorkspaceFeature('workspace.branding.edit');
+        $this->Kt_saas_model->remove_tenant_workspace_branding($type === 'dark' ? 'company_logo_dark' : 'company_logo');
+        redirect(admin_url('kt_saas/tenant_settings'));
+    }
+
+    public function tenant_remove_favicon()
+    {
+        $this->requirePost();
+        $this->requireTenantWorkspaceFeature('workspace.branding.edit');
+        $this->Kt_saas_model->remove_tenant_workspace_branding('favicon');
+        redirect(admin_url('kt_saas/tenant_settings'));
+    }
+
+    public function recalculate_usage()
+    {
+        $this->requireCapability('kt_saas_manage_usage');
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/UsageSnapshotRunner.php');
+        $runner = new UsageSnapshotRunner();
+        $result = $runner->recalculateAll(100);
+
+        if (!empty($result['failed'])) {
+            set_alert('warning', 'Đã tính lại dữ liệu sử dụng nhưng có ' . (int) $result['failed'] . ' tenant bị lỗi.');
+            redirect(admin_url('kt_saas'));
+        }
+
+        set_alert('success', 'Đã tính lại dữ liệu sử dụng cho ' . (int) $result['successful'] . ' tenant.');
+        redirect(admin_url('kt_saas'));
+    }
+
+    public function cleanup_usage()
+    {
+        $this->requireCapability('kt_saas_manage_usage');
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/UsageRetentionService.php');
+        $service = new UsageRetentionService();
+        $result = $service->cleanupOldSnapshots();
+
+        set_alert('success', 'Đã dọn ' . (int) $result['deleted_snapshots'] . ' bản ghi dữ liệu sử dụng cũ.');
+        redirect(admin_url('kt_saas'));
+    }
+
+    public function run_billing_cycle()
+    {
+        $this->requireCapability('kt_saas_manage_billing');
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'billing/RecurringBillingRunner.php');
+        $runner = new RecurringBillingRunner();
+        $result = $runner->run(100);
+
+        set_alert(
+            'success',
+            'Đã chạy chu kỳ thanh toán. Gia hạn miễn phí: ' . (int) ($result['free_renewals'] ?? 0)
+            . ', hóa đơn tạo mới: ' . (int) ($result['renewal_invoices'] ?? 0)
+            . ', hóa đơn vượt mức mới: ' . (int) ($result['overage_invoices'] ?? 0)
+            . ', hóa đơn vượt mức đã tồn tại: ' . (int) ($result['overage_existing'] ?? 0)
+            . ', bắt đầu ân hạn: ' . (int) ($result['grace_started'] ?? 0)
+            . ', hóa đơn quá hạn: ' . (int) ($result['invoices_overdue'] ?? 0)
+            . ', lượt nhắc thanh toán: ' . (int) ($result['dunning_attempts'] ?? 0)
+            . ', tenant bị tạm ngưng: ' . ((int) ($result['trial_to_suspended'] ?? 0) + (int) ($result['grace_to_suspended'] ?? 0)) . '.'
+        );
+        redirect(admin_url('kt_saas'));
+    }
+
+    private function flashResult($result, $successMessage)
+    {
+        if (!empty($result['success'])) {
+            set_alert('success', $successMessage);
+            return;
+        }
+
+        set_alert('warning', $result['message'] ?? 'Không thể lưu dữ liệu.');
+    }
+
+    private function requirePost()
+    {
+        if (strtolower((string) $this->input->method()) !== 'post') {
+            show_404();
+        }
+    }
+
+    private function normalizeBulkIds($ids)
+    {
+        if (!is_array($ids)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($id > 0) {
+                $normalized[$id] = $id;
+            }
+        }
+
+        return array_values($normalized);
+    }
+
+    private function setBulkAlert($processed, $failed, $prefix)
+    {
+        if ($processed > 0 && $failed === 0) {
+            set_alert('success', trim($prefix . ' Thành công: ' . (int) $processed . '.'));
+            return;
+        }
+
+        set_alert('warning', trim($prefix . ' Thành công: ' . (int) $processed . ', thất bại: ' . (int) $failed . '.'));
+    }
+
+    private function requireCapability($capability)
+    {
+        if (!kt_saas_staff_can($capability)) {
+            access_denied(KT_SAAS_MODULE);
+        }
+    }
+
+    private function requireLandlordContext()
+    {
+        if (!kt_saas_is_landlord_context()) {
+            set_status_header(403);
+            header('Content-Type: text/plain; charset=UTF-8');
+            echo 'Khu vực này chỉ khả dụng trên hệ thống landlord.';
+            exit;
+        }
+    }
+
+    private function requireTenantContext()
+    {
+        if (!kt_saas_is_tenant_runtime()) {
+            show_404();
+        }
+    }
+
+    private function requireTenantAdmin()
+    {
+        if (!is_admin()) {
+            access_denied(KT_SAAS_MODULE);
+        }
+    }
+
+    private function requireTenantWorkspaceSettingsAccess()
+    {
+        if (!kt_saas_can_manage_workspace_settings()) {
+            access_denied(KT_SAAS_MODULE);
+        }
+    }
+
+    private function requireTenantWorkspaceGovernanceViewAccess()
+    {
+        if (!kt_saas_can_view_workspace_governance()) {
+            access_denied(KT_SAAS_MODULE);
+        }
+    }
+
+    private function requireTenantWorkspaceGovernanceManageAccess()
+    {
+        if (!kt_saas_can_manage_workspace_governance()) {
+            access_denied(KT_SAAS_MODULE);
+        }
+    }
+
+    private function requireTenantWorkspaceFeature($featureKey)
+    {
+        if (!kt_saas_workspace_feature_allowed($featureKey, true)) {
+            access_denied(KT_SAAS_MODULE);
+        }
+    }
+
+    private function isTenantWorkspaceSettingsMethod()
+    {
+        return in_array($this->router->fetch_method(), ['tenant_settings', 'tenant_activity_logs', 'tenant_remove_company_logo', 'tenant_remove_favicon'], true);
+    }
+
+    private function isTenantGovernanceMethod()
+    {
+        return in_array($this->router->fetch_method(), ['tenant_governance', 'tenant_role', 'tenant_delete_role', 'tenant_departments', 'tenant_delete_department'], true);
+    }
+
+    private function isTenantPortalMethod()
+    {
+        return in_array($this->router->fetch_method(), ['tenant_subscription', 'tenant_billing', 'tenant_usage', 'tenant_settings', 'tenant_activity_logs', 'tenant_governance', 'tenant_role', 'tenant_delete_role', 'tenant_departments', 'tenant_delete_department', 'tenant_remove_company_logo', 'tenant_remove_favicon', 'tenant_request_renewal', 'tenant_request_plan_change'], true);
+    }
+}

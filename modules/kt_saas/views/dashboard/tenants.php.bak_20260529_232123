@@ -1,0 +1,193 @@
+<?php defined('BASEPATH') or exit('No direct script access allowed'); ?>
+<?php init_head(); ?>
+<div id="wrapper">
+    <div class="content">
+        <div class="row">
+            <div class="col-md-5">
+                <div class="panel_s">
+                    <div class="panel-body">
+                        <h4><?php echo html_escape($edit_tenant ? _l('kt_saas_edit_tenant') : _l('kt_saas_add_tenant')); ?></h4>
+                        <?php echo form_open(admin_url('kt_saas/tenants' . ($edit_tenant ? '/' . $edit_tenant['id'] : ''))); ?>
+                        <?php echo render_input('tenant_code', 'kt_saas_tenant_code', $edit_tenant['tenant_code'] ?? '', 'text', ['required' => true]); ?>
+                        <?php echo render_input('company_name', 'kt_saas_company_name', $edit_tenant['company_name'] ?? '', 'text', ['required' => true]); ?>
+                        <?php echo render_input('owner_name', 'kt_saas_owner_name', $edit_tenant['owner_name'] ?? '', 'text', ['required' => true]); ?>
+                        <?php echo render_input('owner_email', 'kt_saas_owner_email', $edit_tenant['owner_email'] ?? '', 'email', ['required' => true]); ?>
+                        <?php echo render_input('phone', 'kt_saas_phone', $edit_tenant['phone'] ?? ''); ?>
+                        <div class="form-group">
+                            <label for="plan_id"><?php echo _l('kt_saas_plan'); ?></label>
+                            <select name="plan_id" id="plan_id" class="form-control selectpicker" data-none-selected-text="<?php echo _l('dropdown_non_selected_tex'); ?>">
+                                <option value=""></option>
+                                <?php foreach ($plans as $plan) { ?>
+                                    <option value="<?php echo (int) $plan['id']; ?>" <?php echo isset($edit_tenant['plan_id']) && (int) $edit_tenant['plan_id'] === (int) $plan['id'] ? 'selected' : ''; ?>>
+                                        <?php echo html_escape($plan['plan_name']); ?>
+                                    </option>
+                                <?php } ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="status"><?php echo _l('kt_saas_status'); ?></label>
+                            <select name="status" id="status" class="form-control selectpicker">
+                                <?php foreach ($statuses as $key => $label) { ?>
+                                    <option value="<?php echo html_escape($key); ?>" <?php echo ($edit_tenant['status'] ?? 'draft') === $key ? 'selected' : ''; ?>>
+                                        <?php echo html_escape($label); ?>
+                                    </option>
+                                <?php } ?>
+                            </select>
+                        </div>
+                        <?php echo render_input('subdomain', 'kt_saas_subdomain', $edit_tenant['subdomain'] ?? ''); ?>
+                        <?php echo render_input('custom_domain', 'kt_saas_custom_domain', $edit_tenant['custom_domain'] ?? ''); ?>
+                        <?php echo render_input('db_name', 'kt_saas_db_name', $edit_tenant['db_name'] ?? ''); ?>
+                        <?php echo render_input('db_host', 'kt_saas_db_host', $edit_tenant['db_host'] ?? kt_saas_get_option('kt_saas_default_db_host', '127.0.0.1')); ?>
+                        <?php echo render_input('db_port', 'kt_saas_db_port', $edit_tenant['db_port'] ?? kt_saas_get_option('kt_saas_default_db_port', '3306')); ?>
+                        <?php echo render_input('db_user', 'kt_saas_db_user', $edit_tenant['db_user'] ?? ''); ?>
+                        <?php echo render_input('db_password', 'kt_saas_db_password', '', 'password'); ?>
+                        <?php echo render_input('timezone', 'kt_saas_timezone', $edit_tenant['timezone'] ?? kt_saas_get_option('kt_saas_default_timezone', 'UTC')); ?>
+                        <?php echo render_input('locale', 'kt_saas_locale', $edit_tenant['locale'] ?? kt_saas_get_option('kt_saas_default_locale', 'english')); ?>
+                        <?php echo render_input('currency', 'kt_saas_currency', $edit_tenant['currency'] ?? kt_saas_get_option('kt_saas_default_currency', 'USD')); ?>
+                        <?php echo render_input('storage_driver', 'kt_saas_storage_driver', $edit_tenant['storage_driver'] ?? kt_saas_get_option('kt_saas_default_storage_driver', 'local')); ?>
+                        <?php echo render_input('storage_path', 'kt_saas_storage_path', $edit_tenant['storage_path'] ?? ''); ?>
+                        <?php echo render_date_input('expires_at', 'kt_saas_expires_at', isset($edit_tenant['expires_at']) && $edit_tenant['expires_at'] ? _d(date('Y-m-d', strtotime($edit_tenant['expires_at']))) : ''); ?>
+                        <button type="submit" class="btn btn-primary"><?php echo _l('kt_saas_save'); ?></button>
+                        <?php if ($edit_tenant) { ?>
+                            <a href="<?php echo admin_url('kt_saas/tenants'); ?>" class="btn btn-default"><?php echo _l('kt_saas_cancel'); ?></a>
+                        <?php } ?>
+                        <?php echo form_close(); ?>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-7">
+                <div class="panel_s">
+                    <div class="panel-body">
+                        <h4><?php echo html_escape($title); ?></h4>
+                        <?php echo form_open(admin_url('kt_saas/bulk_tenants'), ['id' => 'kt-saas-bulk-tenants-form']); ?>
+                        <div class="row mbottom15">
+                            <div class="col-md-8">
+                                <div class="input-group">
+                                    <select name="bulk_action" id="kt-saas-bulk-tenants-action" class="form-control">
+                                        <option value="">Chọn thao tác hàng loạt</option>
+                                        <option value="activate"><?php echo _l('kt_saas_activate'); ?></option>
+                                        <option value="suspend"><?php echo _l('kt_saas_suspend'); ?></option>
+                                        <option value="terminate"><?php echo _l('kt_saas_terminate'); ?></option>
+                                        <option value="archive">Lưu trữ</option>
+                                        <option value="queue_provision"><?php echo _l('kt_saas_queue_job'); ?></option>
+                                    </select>
+                                    <span class="input-group-btn">
+                                        <button type="submit" class="btn btn-primary" id="kt-saas-bulk-tenants-submit" disabled>Áp dụng</button>
+                                    </span>
+                                </div>
+                                <p class="text-muted mtop10 mbot0" id="kt-saas-bulk-tenants-count">Chưa chọn tenant nào.</p>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th width="40">
+                                            <div class="checkbox checkbox-primary mtop0 mbot0">
+                                                <input type="checkbox" id="kt-saas-bulk-tenants-all">
+                                                <label for="kt-saas-bulk-tenants-all"></label>
+                                            </div>
+                                        </th>
+                                        <th><?php echo _l('kt_saas_tenant_code'); ?></th>
+                                        <th><?php echo _l('kt_saas_company_name'); ?></th>
+                                        <th><?php echo _l('kt_saas_plan'); ?></th>
+                                        <th><?php echo _l('kt_saas_status'); ?></th>
+                                        <th><?php echo _l('kt_saas_provisioning'); ?></th>
+                                        <th><?php echo _l('kt_saas_actions'); ?></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($tenants as $tenant) { ?>
+                                        <tr>
+                                            <td>
+                                                <div class="checkbox checkbox-primary mtop0 mbot0">
+                                                    <input type="checkbox" class="kt-saas-bulk-tenants-item" name="ids[]" value="<?php echo (int) $tenant['id']; ?>" id="kt-saas-tenant-<?php echo (int) $tenant['id']; ?>">
+                                                    <label for="kt-saas-tenant-<?php echo (int) $tenant['id']; ?>"></label>
+                                                </div>
+                                            </td>
+                                            <td><?php echo html_escape($tenant['tenant_code']); ?></td>
+                                            <td>
+                                                <strong><?php echo html_escape($tenant['company_name']); ?></strong><br>
+                                                <small><?php echo html_escape($tenant['owner_email']); ?></small>
+                                            </td>
+                                            <td><?php echo html_escape($tenant['plan_name'] ?: '-'); ?></td>
+                                            <td><span class="label label-<?php echo kt_saas_status_badge_class($tenant['status']); ?>"><?php echo html_escape((kt_saas_tenant_statuses()[$tenant['status']] ?? $tenant['status'])); ?></span></td>
+                                            <td><span class="label label-<?php echo kt_saas_status_badge_class($tenant['provisioning_status']); ?>"><?php echo html_escape((kt_saas_provision_job_statuses()[$tenant['provisioning_status']] ?? $tenant['provisioning_status'])); ?></span></td>
+                                            <td class="kt-saas-table-actions">
+                                                <?php $onboarding = kt_saas_tenant_onboarding($tenant); ?>
+                                                <a href="<?php echo admin_url('kt_saas/tenants/' . $tenant['id']); ?>" class="btn btn-default btn-sm"><?php echo _l('kt_saas_edit'); ?></a>
+                                                <a href="<?php echo admin_url('kt_saas/tenant_access/' . $tenant['id']); ?>" class="btn btn-warning btn-sm">Truy cập</a>
+                                                <a href="<?php echo admin_url('kt_saas/queue_provision_job/' . $tenant['id']); ?>" class="btn btn-info btn-sm"><?php echo _l('kt_saas_queue_job'); ?></a>
+                                                <?php if (!empty($onboarding['set_password_url'])) { ?>
+                                                    <a href="<?php echo html_escape($onboarding['set_password_url']); ?>" class="btn btn-primary btn-sm" target="_blank" rel="noopener noreferrer">Onboarding</a>
+                                                <?php } ?>
+                                                <?php if (!empty($onboarding['admin_login_url'])) { ?>
+                                                    <a href="<?php echo html_escape($onboarding['admin_login_url']); ?>" class="btn btn-default btn-sm" target="_blank" rel="noopener noreferrer">Đăng nhập</a>
+                                                <?php } ?>
+                                                <div class="btn-group mtop5">
+                                                    <a href="<?php echo admin_url('kt_saas/tenant_status/' . $tenant['id'] . '/active'); ?>" class="btn btn-success btn-sm"><?php echo _l('kt_saas_activate'); ?></a>
+                                                    <a href="<?php echo admin_url('kt_saas/tenant_status/' . $tenant['id'] . '/suspended'); ?>" class="btn btn-warning btn-sm"><?php echo _l('kt_saas_suspend'); ?></a>
+                                                    <a href="<?php echo admin_url('kt_saas/tenant_status/' . $tenant['id'] . '/terminated'); ?>" class="btn btn-danger btn-sm"><?php echo _l('kt_saas_terminate'); ?></a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php } ?>
+                                    <?php if (empty($tenants)) { ?>
+                                        <tr><td colspan="7"><?php echo _l('kt_saas_no_records'); ?></td></tr>
+                                    <?php } ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        <?php echo form_close(); ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<?php init_tail(); ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var form = document.getElementById('kt-saas-bulk-tenants-form');
+    if (!form) {
+        return;
+    }
+    var checkAll = document.getElementById('kt-saas-bulk-tenants-all');
+    var items = Array.prototype.slice.call(document.querySelectorAll('.kt-saas-bulk-tenants-item'));
+    var submit = document.getElementById('kt-saas-bulk-tenants-submit');
+    var count = document.getElementById('kt-saas-bulk-tenants-count');
+    var action = document.getElementById('kt-saas-bulk-tenants-action');
+
+    function updateState() {
+        var selected = items.filter(function (item) { return item.checked; }).length;
+        submit.disabled = selected === 0;
+        count.textContent = selected > 0 ? ('Đã chọn ' + selected + ' tenant.') : 'Chưa chọn tenant nào.';
+        if (checkAll) {
+            checkAll.checked = selected > 0 && selected === items.length;
+        }
+    }
+
+    if (checkAll) {
+        checkAll.addEventListener('change', function () {
+            items.forEach(function (item) { item.checked = checkAll.checked; });
+            updateState();
+        });
+    }
+
+    items.forEach(function (item) {
+        item.addEventListener('change', updateState);
+    });
+
+    form.addEventListener('submit', function (event) {
+        if (!action.value || items.filter(function (item) { return item.checked; }).length === 0) {
+            event.preventDefault();
+            alert('Chọn ít nhất một tenant và một thao tác.');
+            return;
+        }
+
+        if (!window.confirm('Xác nhận thực hiện thao tác hàng loạt cho các tenant đã chọn?')) {
+            event.preventDefault();
+        }
+    });
+});
+</script>
