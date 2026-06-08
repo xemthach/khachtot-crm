@@ -227,7 +227,12 @@ class Kt_integration_model extends App_Model
     {
         $signature = trim((string) ($headers['x-zevent-signature'] ?? $headers['X-ZEvent-Signature'] ?? $headers['X-Zevent-Signature'] ?? ''));
         if ($signature === '') {
-            return ['success' => true, 'status' => 'unchecked', 'message' => 'Zalo signature header is not present.'];
+            $allowUnsigned = (bool) $this->connection_setting($connection, 'allow_unsigned_test_webhook', ENVIRONMENT !== 'production');
+            if (!$allowUnsigned) {
+                return ['success' => false, 'status' => 'invalid', 'message' => 'Zalo signature header is not present.'];
+            }
+
+            return ['success' => true, 'status' => 'unchecked', 'message' => 'Unsigned Zalo webhook accepted for testing.'];
         }
 
         $secret = kt_integration_hub_decrypt_value($connection['webhook_secret_encrypted'] ?? '');
@@ -284,6 +289,14 @@ class Kt_integration_model extends App_Model
         ];
         $this->landlord_db()->insert(db_prefix() . 'kt_integration_webhook_events', $record);
         $eventId = (int) $this->landlord_db()->insert_id();
+        if ($eventId > 0 && !empty($connection['id']) && $providerCode === 'zalo_oa') {
+            $settings = kt_integration_hub_json_decode((string) ($connection['settings_json'] ?? ''), []);
+            $settings['last_webhook_at'] = kt_integration_hub_now();
+            $this->landlord_db()->where('id', (int) $connection['id'])->update(db_prefix() . 'kt_integration_connections', [
+                'settings_json' => kt_integration_hub_json_encode(kt_integration_hub_redact_secrets($settings)),
+                'updated_at' => kt_integration_hub_now(),
+            ]);
+        }
         $this->queue_job_from_event($eventId, $connection, $payload, $eventType, $externalEventId);
 
         return ['success' => $eventId > 0, 'event_id' => $eventId];
@@ -387,6 +400,17 @@ class Kt_integration_model extends App_Model
         try {
             if ((string) ($job['provider_code'] ?? '') === 'zalo_oa') {
                 $payload = kt_integration_hub_json_decode((string) ($job['payload_json'] ?? ''), []);
+                $normalized = $this->normalize_zalo_payload($payload);
+                if (trim((string) ($normalized['external_user_id'] ?? '')) === '') {
+                    return $this->mark_job_done($job, ['ignored' => true, 'message' => 'Zalo event has no user id.']);
+                }
+                if ((string) ($normalized['event_type'] ?? '') === 'follow') {
+                    $connection = $this->get_connection((int) ($job['connection_id'] ?? 0));
+                    $createLeadOnFollow = (bool) $this->connection_setting($connection ?: [], 'create_lead_on_follow', true);
+                    if (!$createLeadOnFollow) {
+                        return $this->mark_job_done($job, ['ignored' => true, 'message' => 'Follow event stored without lead creation.']);
+                    }
+                }
                 $leadId = $this->write_zalo_lead_to_tenant((int) $job['tenant_id'], (int) ($job['connection_id'] ?? 0), $payload);
 
                 return $this->mark_job_done($job, ['lead_id' => $leadId]);
@@ -544,6 +568,11 @@ class Kt_integration_model extends App_Model
         if ($existingLink) {
             $leadId = (int) $existingLink['local_id'];
             $this->link_zalo_message($tenantId, $connectionId, $leadId, $normalized, $payload);
+            $this->log('info', 'zalo.lead_reused', 'Existing Zalo lead reused.', [
+                'lead_id' => $leadId,
+                'external_user_id' => $externalUserId,
+                'external_message_id' => $normalized['external_message_id'] ?? '',
+            ], (int) $tenantId, (int) $connectionId, 'zalo_oa');
 
             return $leadId;
         }
@@ -616,6 +645,10 @@ class Kt_integration_model extends App_Model
         }
         if ($messageText !== '') {
             $description .= "Tin nhắn: " . $messageText . "\n";
+        } elseif ((string) ($normalized['event_type'] ?? '') === 'click_message_button') {
+            $description .= "Người dùng bấm Nhắn tin trên Zalo OA.\n";
+        } elseif ((string) ($normalized['event_type'] ?? '') === 'follow') {
+            $description .= "Người dùng quan tâm Zalo OA.\n";
         }
         $description .= "\nIntegration payload:\n" . kt_integration_hub_json_encode(kt_integration_hub_redact_secrets($rawPayload));
 
@@ -766,8 +799,15 @@ class Kt_integration_model extends App_Model
         $follower = is_array($payload['follower'] ?? null) ? $payload['follower'] : [];
         $message = is_array($payload['message'] ?? null) ? $payload['message'] : [];
         $externalUserId = trim((string) ($sender['id'] ?? $payload['user_id_by_app'] ?? $follower['id'] ?? $payload['user_id'] ?? ''));
-        $messageId = trim((string) ($message['msg_id'] ?? $payload['msg_id'] ?? ''));
+        $messageId = trim((string) ($message['msg_id'] ?? $payload['msg_id'] ?? $payload['message_id'] ?? ''));
         $messageText = trim((string) ($message['text'] ?? $message['message'] ?? $payload['text'] ?? ''));
+        $normalizedEvent = strtolower($eventType);
+        if (strpos($normalizedEvent, 'click') !== false && (strpos($normalizedEvent, 'message') !== false || strpos($normalizedEvent, 'nhan') !== false)) {
+            $eventType = 'click_message_button';
+            if ($messageText === '') {
+                $messageText = 'Người dùng bấm Nhắn tin trên Zalo OA.';
+            }
+        }
 
         return [
             'source_provider' => 'zalo_oa',
@@ -791,17 +831,27 @@ class Kt_integration_model extends App_Model
                 'provider_code' => 'zalo_oa',
                 'public_key' => (string) ($existing['public_key'] ?? ''),
             ];
+            $hasAccessToken = !empty($existing['access_token_encrypted']) || trim((string) ($data['access_token'] ?? '')) !== '';
 
             return kt_integration_hub_redact_secrets([
                 'app_id' => trim((string) ($data['app_id'] ?? ($existingSettings['app_id'] ?? ''))),
                 'oa_id' => trim((string) ($data['oa_id'] ?? ($existing['external_account_id'] ?? ($existingSettings['oa_id'] ?? '')))),
+                'oa_name' => trim((string) ($data['external_account_name'] ?? ($existing['external_account_name'] ?? ($existingSettings['oa_name'] ?? '')))),
+                'connection_mode' => in_array(($data['connection_mode'] ?? ($existingSettings['connection_mode'] ?? 'manual_token')), ['manual_token', 'oauth_prepared'], true)
+                    ? (string) ($data['connection_mode'] ?? ($existingSettings['connection_mode'] ?? 'manual_token'))
+                    : 'manual_token',
                 'oauth_callback_url' => kt_integration_hub_oauth_callback_url($connectionForUrls, 'zalo_oa'),
                 'webhook_url' => kt_integration_hub_webhook_url($connectionForUrls),
                 'default_lead_source' => trim((string) ($data['default_lead_source'] ?? ($existingSettings['default_lead_source'] ?? 'Zalo OA'))) ?: 'Zalo OA',
                 'lead_assigned' => (int) ($data['lead_assigned'] ?? ($existingSettings['lead_assigned'] ?? 0)),
                 'lead_status' => (int) ($data['lead_status'] ?? ($existingSettings['lead_status'] ?? 0)),
                 'lead_source' => (int) ($data['lead_source'] ?? ($existingSettings['lead_source'] ?? 0)),
-                'oauth_status' => !empty($existing['access_token_encrypted']) ? 'token_stored' : 'not_connected',
+                'allow_unsigned_test_webhook' => array_key_exists('allow_unsigned_test_webhook', $data) ? (int) !empty($data['allow_unsigned_test_webhook']) : (int) ($existingSettings['allow_unsigned_test_webhook'] ?? (ENVIRONMENT !== 'production' ? 1 : 0)),
+                'create_lead_on_follow' => array_key_exists('create_lead_on_follow', $data) ? (int) !empty($data['create_lead_on_follow']) : (int) ($existingSettings['create_lead_on_follow'] ?? 1),
+                'token_expires_at' => trim((string) ($data['token_expires_at'] ?? ($existingSettings['token_expires_at'] ?? ''))),
+                'last_webhook_at' => $existingSettings['last_webhook_at'] ?? '',
+                'last_connected_at' => $hasAccessToken ? ($existingSettings['last_connected_at'] ?? kt_integration_hub_now()) : ($existingSettings['last_connected_at'] ?? ''),
+                'oauth_status' => $hasAccessToken ? 'token_stored' : 'not_connected',
                 'connector_scope' => 'zalo_oa_v1_webhook_intake',
             ]);
         }

@@ -7,6 +7,7 @@ Zalo OA Connector V1 supports inbound webhook intake for local and controlled li
 Implemented:
 
 - Zalo OA connection settings.
+- Manual Token mode for App ID, OA ID, secret, access token and optional refresh token.
 - Global webhook endpoint resolved by `connection_public_key`.
 - Raw event storage.
 - Queue job processing.
@@ -59,6 +60,36 @@ Fields:
 
 The full secret is stored encrypted and is not printed in logs.
 
+Access token and refresh token are also stored encrypted. The UI should only show masked token status after saving.
+
+## Connection Modes
+
+### Manual Token
+
+Manual Token is ready for V1. Use this mode when the tenant gets an OA Access Token from Zalo Developers/API Explorer or another approved Zalo flow.
+
+Fields:
+
+```text
+App ID
+OA ID
+OA name
+OA Secret Key / App Secret
+OA Access Token
+OA Refresh Token optional
+Token expiry optional
+```
+
+### OAuth Callback Prepared
+
+The callback route is prepared:
+
+```text
+/kt_integration_hub/oauth/zalo_oa/callback/{connection_public_key}
+```
+
+The V1 connector logs callback receipt safely but does not mark a connection production-ready unless token exchange succeeds with real Zalo credentials.
+
 ## URLs
 
 Webhook URL:
@@ -89,13 +120,15 @@ If Zalo sends `X-ZEvent-Signature`, the connector verifies it using:
 sha256(app_id + raw_json_body + timestamp + app_secret)
 ```
 
-If no signature header is present, the event is accepted for local simulation with:
+If no signature header is present, the event is accepted only when unsigned test mode is enabled, usually for local simulation, with:
 
 ```text
 signature_status = unchecked
 ```
 
 Do not treat `unchecked` as production-verified.
+
+Production should disable unsigned test webhooks unless Zalo confirms that the selected event type does not provide a signature.
 
 ## Local Simulated Webhook Test
 

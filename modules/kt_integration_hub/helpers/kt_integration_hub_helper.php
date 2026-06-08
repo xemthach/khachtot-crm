@@ -84,6 +84,8 @@ if (!function_exists('kt_integration_hub_redact_secrets')) {
             'access_token',
             'refresh_token',
             'client_secret',
+            'app_secret',
+            'oa_secret_key',
             'webhook_secret',
             'authorization',
             'x-kt-signature',
@@ -111,6 +113,23 @@ if (!function_exists('kt_integration_hub_redact_secrets')) {
         }
 
         return $value;
+    }
+}
+
+if (!function_exists('kt_integration_hub_mask_secret')) {
+    function kt_integration_hub_mask_secret($value)
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+
+        $length = strlen($value);
+        if ($length <= 8) {
+            return str_repeat('*', $length);
+        }
+
+        return substr($value, 0, 4) . str_repeat('*', max($length - 8, 4)) . substr($value, -4);
     }
 }
 

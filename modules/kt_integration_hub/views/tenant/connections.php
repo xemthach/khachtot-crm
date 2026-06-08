@@ -8,6 +8,12 @@ foreach ($providers as $provider) {
 $selectedProviderCode = (string) ($edit_connection['provider_code'] ?? 'custom_webhook');
 $selectedProvider = $providerMap[$selectedProviderCode] ?? reset($providerMap);
 $connectionSettings = kt_integration_hub_json_decode((string) ($edit_connection['settings_json'] ?? ''), []);
+$storedAccessToken = $edit_connection ? kt_integration_hub_decrypt_value($edit_connection['access_token_encrypted'] ?? '') : '';
+$storedRefreshToken = $edit_connection ? kt_integration_hub_decrypt_value($edit_connection['refresh_token_encrypted'] ?? '') : '';
+$tokenExpiresAt = '';
+if (!empty($connectionSettings['token_expires_at'])) {
+    $tokenExpiresAt = str_replace(' ', 'T', substr((string) $connectionSettings['token_expires_at'], 0, 16));
+}
 $generatedConnection = null;
 if (!empty($generated_secret_connection_id)) {
     foreach ($connections as $connection) {
@@ -121,16 +127,50 @@ if (!empty($generated_secret_connection_id)) {
                                 <strong>Zalo OA V1 Beta</strong>
                                 <p class="mbot0"><?php echo _l('kt_integration_hub_zalo_beta_note'); ?></p>
                             </div>
+                            <div class="panel_s">
+                                <div class="panel-body">
+                                    <h5 class="tw-mt-0"><?php echo _l('kt_integration_hub_zalo_quick_guide'); ?></h5>
+                                    <ol class="text-muted tw-pl-4">
+                                        <li><?php echo _l('kt_integration_hub_zalo_quick_step_app'); ?></li>
+                                        <li><?php echo _l('kt_integration_hub_zalo_quick_step_token'); ?></li>
+                                        <li><?php echo _l('kt_integration_hub_zalo_quick_step_webhook'); ?></li>
+                                        <li><?php echo _l('kt_integration_hub_zalo_quick_step_test'); ?></li>
+                                    </ol>
+                                    <p class="mbot0"><a href="<?php echo base_url('docs/ZALO_OA_TENANT_SETUP_GUIDE.md'); ?>" target="_blank" rel="noopener"><?php echo _l('kt_integration_hub_zalo_full_guide'); ?></a></p>
+                                </div>
+                            </div>
 
                             <?php echo render_input('connection_name', 'kt_integration_hub_connection_name', $edit_connection['connection_name'] ?? 'Zalo OA'); ?>
+                            <div class="form-group">
+                                <label><?php echo _l('kt_integration_hub_connection_mode'); ?></label>
+                                <select name="connection_mode" class="form-control">
+                                    <option value="manual_token" <?php echo (($connectionSettings['connection_mode'] ?? 'manual_token') === 'manual_token') ? 'selected' : ''; ?>><?php echo _l('kt_integration_hub_zalo_manual_token_mode'); ?></option>
+                                    <option value="oauth_prepared" <?php echo (($connectionSettings['connection_mode'] ?? '') === 'oauth_prepared') ? 'selected' : ''; ?>><?php echo _l('kt_integration_hub_zalo_oauth_prepared_mode'); ?></option>
+                                </select>
+                            </div>
                             <?php echo render_input('app_id', 'kt_integration_hub_zalo_app_id', $connectionSettings['app_id'] ?? ''); ?>
                             <?php echo render_input('app_secret', 'kt_integration_hub_zalo_app_secret', '', 'password', ['autocomplete' => 'new-password']); ?>
                             <p class="text-muted"><?php echo _l('kt_integration_hub_zalo_secret_blank'); ?></p>
                             <?php echo render_input('oa_id', 'kt_integration_hub_zalo_oa_id', $edit_connection['external_account_id'] ?? ($connectionSettings['oa_id'] ?? '')); ?>
                             <?php echo render_input('external_account_name', 'kt_integration_hub_external_account', $edit_connection['external_account_name'] ?? ''); ?>
+                            <?php echo render_input('access_token', 'kt_integration_hub_zalo_access_token', '', 'password', ['autocomplete' => 'new-password']); ?>
+                            <?php if ($storedAccessToken !== '') { ?><p class="text-muted"><?php echo _l('kt_integration_hub_token_stored'); ?>: <code><?php echo html_escape(kt_integration_hub_mask_secret($storedAccessToken)); ?></code></p><?php } ?>
+                            <?php echo render_input('refresh_token', 'kt_integration_hub_zalo_refresh_token', '', 'password', ['autocomplete' => 'new-password']); ?>
+                            <?php if ($storedRefreshToken !== '') { ?><p class="text-muted"><?php echo _l('kt_integration_hub_refresh_token_stored'); ?>: <code><?php echo html_escape(kt_integration_hub_mask_secret($storedRefreshToken)); ?></code></p><?php } ?>
+                            <?php echo render_input('token_expires_at', 'kt_integration_hub_token_expires_at', $tokenExpiresAt, 'datetime-local'); ?>
                             <?php echo render_input('default_lead_source', 'kt_integration_hub_default_lead_source', $connectionSettings['default_lead_source'] ?? 'Zalo OA'); ?>
                             <?php echo render_input('lead_assigned', 'kt_integration_hub_lead_assigned', $connectionSettings['lead_assigned'] ?? 0, 'number'); ?>
                             <?php echo render_input('lead_status', 'kt_integration_hub_lead_status', $connectionSettings['lead_status'] ?? 0, 'number'); ?>
+                            <input type="hidden" name="allow_unsigned_test_webhook" value="0">
+                            <div class="checkbox checkbox-primary">
+                                <input type="checkbox" id="allow_unsigned_test_webhook" name="allow_unsigned_test_webhook" value="1" <?php echo !empty($connectionSettings['allow_unsigned_test_webhook']) || (!$edit_connection && ENVIRONMENT !== 'production') ? 'checked' : ''; ?>>
+                                <label for="allow_unsigned_test_webhook"><?php echo _l('kt_integration_hub_allow_unsigned_test_webhook'); ?></label>
+                            </div>
+                            <input type="hidden" name="create_lead_on_follow" value="0">
+                            <div class="checkbox checkbox-primary">
+                                <input type="checkbox" id="create_lead_on_follow" name="create_lead_on_follow" value="1" <?php echo !isset($connectionSettings['create_lead_on_follow']) || !empty($connectionSettings['create_lead_on_follow']) ? 'checked' : ''; ?>>
+                                <label for="create_lead_on_follow"><?php echo _l('kt_integration_hub_create_lead_on_follow'); ?></label>
+                            </div>
 
                             <?php if ($edit_connection && $selectedProviderCode === 'zalo_oa') { ?>
                                 <div class="form-group">
