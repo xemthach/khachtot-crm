@@ -90,6 +90,8 @@ if (!function_exists('kt_integration_hub_redact_secrets')) {
             'x_kt_signature',
             'x-signature',
             'x_signature',
+            'x-zevent-signature',
+            'x_zevent_signature',
             'signature',
             'password',
             'api_key',
@@ -124,6 +126,7 @@ if (!function_exists('kt_integration_hub_status_badge_class')) {
             'processing' => 'info',
             'done' => 'success',
             'ready' => 'success',
+            'beta' => 'info',
             'planned' => 'warning',
             'disabled' => 'default',
             'failed' => 'danger',
@@ -139,6 +142,15 @@ if (!function_exists('kt_integration_hub_webhook_url')) {
     function kt_integration_hub_webhook_url(array $connection)
     {
         return kt_integration_hub_landlord_base_url() . 'kt_integration_hub/webhook/' . rawurlencode((string) ($connection['provider_code'] ?? 'custom_webhook')) . '/' . rawurlencode((string) ($connection['public_key'] ?? ''));
+    }
+}
+
+if (!function_exists('kt_integration_hub_oauth_callback_url')) {
+    function kt_integration_hub_oauth_callback_url(array $connection, $providerCode = null)
+    {
+        $providerCode = $providerCode ?: (string) ($connection['provider_code'] ?? 'zalo_oa');
+
+        return kt_integration_hub_landlord_base_url() . 'kt_integration_hub/oauth/' . rawurlencode((string) $providerCode) . '/callback/' . rawurlencode((string) ($connection['public_key'] ?? ''));
     }
 }
 
@@ -168,6 +180,19 @@ if (!function_exists('kt_integration_hub_test_curl')) {
             . "  -H \"Content-Type: application/json\" \\\n"
             . "  -H \"X-KT-Timestamp: \$TS\" \\\n"
             . "  -H \"X-KT-Signature: \$SIG\" \\\n"
+            . "  --data \"\$RAW\"";
+    }
+}
+
+if (!function_exists('kt_integration_hub_zalo_test_curl')) {
+    function kt_integration_hub_zalo_test_curl(array $connection)
+    {
+        $url = kt_integration_hub_webhook_url($connection);
+        $payload = '{"event_name":"user_send_text","sender":{"id":"zalo_user_001"},"recipient":{"id":"oa_test_001"},"message":{"msg_id":"msg_001","text":"Toi can tu van CRM"},"timestamp":1780000000000}';
+
+        return "RAW='" . $payload . "'\n"
+            . "curl -i -X POST \"" . $url . "\" \\\n"
+            . "  -H \"Content-Type: application/json\" \\\n"
             . "  --data \"\$RAW\"";
     }
 }

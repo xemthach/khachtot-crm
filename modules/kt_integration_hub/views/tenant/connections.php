@@ -7,6 +7,7 @@ foreach ($providers as $provider) {
 }
 $selectedProviderCode = (string) ($edit_connection['provider_code'] ?? 'custom_webhook');
 $selectedProvider = $providerMap[$selectedProviderCode] ?? reset($providerMap);
+$connectionSettings = kt_integration_hub_json_decode((string) ($edit_connection['settings_json'] ?? ''), []);
 $generatedConnection = null;
 if (!empty($generated_secret_connection_id)) {
     foreach ($connections as $connection) {
@@ -83,7 +84,7 @@ if (!empty($generated_secret_connection_id)) {
 
                         <?php echo form_open(admin_url('kt_integration_hub/connections' . ($edit_connection ? '/' . (int) $edit_connection['id'] : '')), ['id' => 'kt-connection-form']); ?>
                         <input type="hidden" name="provider_code" id="kt-provider-code" value="<?php echo html_escape($selectedProviderCode); ?>">
-                        <input type="hidden" name="auth_type" value="custom_hmac">
+                        <input type="hidden" name="auth_type" id="kt-auth-type" value="<?php echo html_escape($selectedProvider['auth_type'] ?? 'custom_hmac'); ?>">
 
                         <div id="kt-custom-webhook-form">
                             <?php echo render_input('connection_name', 'kt_integration_hub_connection_name', $edit_connection['connection_name'] ?? 'Test Custom Webhook'); ?>
@@ -113,6 +114,56 @@ if (!empty($generated_secret_connection_id)) {
                                 <label for="is_active"><?php echo _l('kt_integration_hub_active'); ?></label>
                             </div>
                             <button type="submit" id="kt-submit-connection" class="btn btn-primary"><?php echo _l('submit'); ?></button>
+                        </div>
+
+                        <div id="kt-zalo-oa-form" style="display:none;">
+                            <div class="alert alert-info">
+                                <strong>Zalo OA V1 Beta</strong>
+                                <p class="mbot0"><?php echo _l('kt_integration_hub_zalo_beta_note'); ?></p>
+                            </div>
+
+                            <?php echo render_input('connection_name', 'kt_integration_hub_connection_name', $edit_connection['connection_name'] ?? 'Zalo OA'); ?>
+                            <?php echo render_input('app_id', 'kt_integration_hub_zalo_app_id', $connectionSettings['app_id'] ?? ''); ?>
+                            <?php echo render_input('app_secret', 'kt_integration_hub_zalo_app_secret', '', 'password', ['autocomplete' => 'new-password']); ?>
+                            <p class="text-muted"><?php echo _l('kt_integration_hub_zalo_secret_blank'); ?></p>
+                            <?php echo render_input('oa_id', 'kt_integration_hub_zalo_oa_id', $edit_connection['external_account_id'] ?? ($connectionSettings['oa_id'] ?? '')); ?>
+                            <?php echo render_input('external_account_name', 'kt_integration_hub_external_account', $edit_connection['external_account_name'] ?? ''); ?>
+                            <?php echo render_input('default_lead_source', 'kt_integration_hub_default_lead_source', $connectionSettings['default_lead_source'] ?? 'Zalo OA'); ?>
+                            <?php echo render_input('lead_assigned', 'kt_integration_hub_lead_assigned', $connectionSettings['lead_assigned'] ?? 0, 'number'); ?>
+                            <?php echo render_input('lead_status', 'kt_integration_hub_lead_status', $connectionSettings['lead_status'] ?? 0, 'number'); ?>
+
+                            <?php if ($edit_connection && $selectedProviderCode === 'zalo_oa') { ?>
+                                <div class="form-group">
+                                    <label><?php echo _l('kt_integration_hub_webhook_url'); ?></label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" readonly id="kt-zalo-webhook-url" value="<?php echo html_escape(kt_integration_hub_webhook_url($edit_connection)); ?>">
+                                        <span class="input-group-btn">
+                                            <button type="button" class="btn btn-default kt-copy-btn" data-copy-target="#kt-zalo-webhook-url"><?php echo _l('kt_integration_hub_copy_url'); ?></button>
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label><?php echo _l('kt_integration_hub_oauth_callback_url'); ?></label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" readonly id="kt-zalo-oauth-url" value="<?php echo html_escape(kt_integration_hub_oauth_callback_url($edit_connection, 'zalo_oa')); ?>">
+                                        <span class="input-group-btn">
+                                            <button type="button" class="btn btn-default kt-copy-btn" data-copy-target="#kt-zalo-oauth-url"><?php echo _l('kt_integration_hub_copy_url'); ?></button>
+                                        </span>
+                                    </div>
+                                </div>
+                                <pre id="kt-zalo-test-curl"><?php echo html_escape(kt_integration_hub_zalo_test_curl($edit_connection)); ?></pre>
+                                <button type="button" class="btn btn-default kt-copy-btn" data-copy-target="#kt-zalo-test-curl"><?php echo _l('kt_integration_hub_copy_test_curl'); ?></button>
+                            <?php } else { ?>
+                                <div class="alert alert-warning"><?php echo _l('kt_integration_hub_zalo_save_first'); ?></div>
+                            <?php } ?>
+
+                            <div class="checkbox checkbox-primary">
+                                <input type="checkbox" id="zalo_is_active" name="is_active" value="1" <?php echo (($edit_connection['status'] ?? 'connected') === 'connected') ? 'checked' : ''; ?>>
+                                <label for="zalo_is_active"><?php echo _l('kt_integration_hub_active'); ?></label>
+                            </div>
+                            <button type="submit" class="btn btn-primary"><?php echo _l('submit'); ?></button>
+                            <button type="button" class="btn btn-default disabled" data-keep-disabled="1" disabled><?php echo _l('kt_integration_hub_zalo_connect_button'); ?></button>
+                            <p class="text-muted mtop10"><?php echo _l('kt_integration_hub_zalo_oauth_pending'); ?></p>
                         </div>
                         <?php echo form_close(); ?>
 
@@ -150,7 +201,9 @@ if (!empty($generated_secret_connection_id)) {
     function selectProvider(code) {
         var selector = document.getElementById('kt-provider-selector');
         var hidden = document.getElementById('kt-provider-code');
-        var form = document.getElementById('kt-custom-webhook-form');
+        var authHidden = document.getElementById('kt-auth-type');
+        var customForm = document.getElementById('kt-custom-webhook-form');
+        var zaloForm = document.getElementById('kt-zalo-oa-form');
         var blocked = document.getElementById('kt-provider-not-ready');
         var selected = selector ? selector.options[selector.selectedIndex] : null;
         var readiness = selected ? selected.getAttribute('data-readiness') : '<?php echo html_escape($selectedProvider['readiness_status'] ?? 'ready'); ?>';
@@ -159,17 +212,34 @@ if (!empty($generated_secret_connection_id)) {
         if (hidden) {
             hidden.value = code;
         }
+        if (authHidden) {
+            authHidden.value = authType;
+        }
 
         document.querySelectorAll('[data-provider-panel]').forEach(function(panel) {
             panel.style.display = panel.getAttribute('data-provider-panel') === code ? 'block' : 'none';
         });
 
-        var canCreate = code === 'custom_webhook' && readiness === 'ready' && authType === 'custom_hmac';
-        if (form) {
-            form.style.display = canCreate ? 'block' : 'none';
+        var canCreateCustom = code === 'custom_webhook' && readiness === 'ready' && authType === 'custom_hmac';
+        var canCreateZalo = code === 'zalo_oa' && (readiness === 'ready' || readiness === 'beta') && authType === 'oauth';
+        if (customForm) {
+            customForm.style.display = canCreateCustom ? 'block' : 'none';
+            customForm.querySelectorAll('input, select, textarea, button').forEach(function(field) {
+                field.disabled = !canCreateCustom;
+            });
+        }
+        if (zaloForm) {
+            zaloForm.style.display = canCreateZalo ? 'block' : 'none';
+            zaloForm.querySelectorAll('input, select, textarea, button').forEach(function(field) {
+                if (field.getAttribute('data-keep-disabled') === '1') {
+                    field.disabled = true;
+                    return;
+                }
+                field.disabled = !canCreateZalo;
+            });
         }
         if (blocked) {
-            blocked.style.display = canCreate ? 'none' : 'block';
+            blocked.style.display = (canCreateCustom || canCreateZalo) ? 'none' : 'block';
         }
     }
 

@@ -80,38 +80,40 @@ class Kt_integration_model extends App_Model
             return ['success' => false, 'message' => 'Provider is not available.'];
         }
 
-        if ((string) ($provider['readiness_status'] ?? 'planned') !== 'ready') {
+        if (!in_array((string) ($provider['readiness_status'] ?? 'planned'), ['ready', 'beta'], true)) {
             return ['success' => false, 'message' => 'This provider is not ready yet. No connection was created.'];
         }
 
-        if (!in_array($providerCode, ['custom_webhook'], true)) {
+        if (!in_array($providerCode, ['custom_webhook', 'zalo_oa'], true)) {
             return ['success' => false, 'message' => 'This connector is not implemented yet.'];
         }
 
         $authType = trim((string) ($provider['auth_type'] ?? 'custom_hmac'));
         $plainSecret = $data['webhook_secret'] ?? null;
+        if ($providerCode === 'zalo_oa') {
+            $plainSecret = $data['app_secret'] ?? null;
+        }
         $generatedSecret = null;
-        if (!$existing && in_array($authType, ['custom_hmac', 'hmac'], true) && trim((string) $plainSecret) === '') {
+        if ($providerCode === 'custom_webhook' && !$existing && in_array($authType, ['custom_hmac', 'hmac'], true) && trim((string) $plainSecret) === '') {
             $generatedSecret = $this->generate_webhook_secret();
             $plainSecret = $generatedSecret;
         }
+        $settings = $this->connection_settings_payload($providerCode, $data, $existing);
 
         $payload = [
             'tenant_id' => $tenantId,
             'provider_code' => $providerCode,
             'connection_name' => trim((string) ($data['connection_name'] ?? '')),
-            'external_account_id' => trim((string) ($data['external_account_id'] ?? '')),
+            'external_account_id' => $providerCode === 'zalo_oa'
+                ? trim((string) ($data['oa_id'] ?? ($existing['external_account_id'] ?? '')))
+                : trim((string) ($data['external_account_id'] ?? '')),
             'external_account_name' => trim((string) ($data['external_account_name'] ?? '')),
             'status' => !empty($data['is_active']) ? 'connected' : 'disconnected',
             'auth_type' => $authType,
             'access_token_encrypted' => $this->merge_encrypted_value($existing, 'access_token_encrypted', $data['access_token'] ?? null),
             'refresh_token_encrypted' => $this->merge_encrypted_value($existing, 'refresh_token_encrypted', $data['refresh_token'] ?? null),
             'webhook_secret_encrypted' => $this->merge_encrypted_value($existing, 'webhook_secret_encrypted', $plainSecret),
-            'settings_json' => kt_integration_hub_json_encode(kt_integration_hub_redact_secrets([
-                'lead_assigned' => (int) ($data['lead_assigned'] ?? 0),
-                'lead_status' => (int) ($data['lead_status'] ?? 0),
-                'lead_source' => (int) ($data['lead_source'] ?? 0),
-            ])),
+            'settings_json' => kt_integration_hub_json_encode($settings),
             'updated_at' => kt_integration_hub_now(),
         ];
 
@@ -126,6 +128,13 @@ class Kt_integration_model extends App_Model
         $payload['created_at'] = kt_integration_hub_now();
         $this->landlord_db()->insert(db_prefix() . 'kt_integration_connections', $payload);
         $insertId = (int) $this->landlord_db()->insert_id();
+        if ($insertId > 0 && $providerCode === 'zalo_oa') {
+            $payload['id'] = $insertId;
+            $payload['settings_json'] = kt_integration_hub_json_encode($this->connection_settings_payload($providerCode, $data, $payload));
+            $this->landlord_db()->where('id', $insertId)->update(db_prefix() . 'kt_integration_connections', [
+                'settings_json' => $payload['settings_json'],
+            ]);
+        }
         $this->log('info', 'connection.created', 'Connection created.', ['connection_id' => $insertId], $tenantId, $insertId, $payload['provider_code']);
 
         return ['success' => $insertId > 0, 'id' => $insertId, 'generated_secret' => $generatedSecret];
@@ -214,13 +223,45 @@ class Kt_integration_model extends App_Model
         return ['success' => true];
     }
 
+    public function verify_zalo_webhook(array $connection, array $payload, $rawBody, array $headers)
+    {
+        $signature = trim((string) ($headers['x-zevent-signature'] ?? $headers['X-ZEvent-Signature'] ?? $headers['X-Zevent-Signature'] ?? ''));
+        if ($signature === '') {
+            return ['success' => true, 'status' => 'unchecked', 'message' => 'Zalo signature header is not present.'];
+        }
+
+        $secret = kt_integration_hub_decrypt_value($connection['webhook_secret_encrypted'] ?? '');
+        if ($secret === '') {
+            return ['success' => false, 'status' => 'invalid', 'message' => 'Zalo OA secret is not configured.'];
+        }
+
+        $appId = trim((string) ($payload['app_id'] ?? $this->connection_setting($connection, 'app_id')));
+        $timestamp = trim((string) ($payload['timestamp'] ?? ''));
+        if ($appId === '' || $timestamp === '') {
+            return ['success' => false, 'status' => 'invalid', 'message' => 'Zalo signature cannot be verified without app_id and timestamp.'];
+        }
+
+        $provided = preg_replace('/^mac=/i', '', $signature);
+        $provided = preg_replace('/^sha256=/i', '', (string) $provided);
+        $provided = strtolower(trim((string) $provided));
+        $expected = hash('sha256', $appId . (string) $rawBody . $timestamp . $secret);
+
+        if (!preg_match('/^[a-f0-9]{64}$/', $provided) || !hash_equals($expected, $provided)) {
+            return ['success' => false, 'status' => 'invalid', 'message' => 'Invalid Zalo webhook signature.'];
+        }
+
+        return ['success' => true, 'status' => 'valid'];
+    }
+
     public function store_webhook_event(array $connection, array $payload, array $headers, $rawBody, $signatureStatus = 'verified')
     {
         $providerCode = (string) ($connection['provider_code'] ?? 'custom_webhook');
         $externalEventId = $this->external_event_id($payload, $rawBody);
-        $eventType = trim((string) ($payload['event_type'] ?? $payload['type'] ?? 'lead'));
+        $eventType = trim((string) ($payload['event_type'] ?? $payload['event_name'] ?? $payload['type'] ?? 'lead'));
 
         $existing = $this->landlord_db()
+            ->where('tenant_id', (int) ($connection['tenant_id'] ?? 0))
+            ->where('connection_id', (int) ($connection['id'] ?? 0))
             ->where('provider_code', $providerCode)
             ->where('external_event_id', $externalEventId)
             ->get(db_prefix() . 'kt_integration_webhook_events')
@@ -253,6 +294,12 @@ class Kt_integration_model extends App_Model
         $entityType = $this->entity_type_from_event($eventType, $payload);
         $jobType = 'upsert_' . $entityType;
         $tenantId = (int) ($connection['tenant_id'] ?? 0);
+        if ((string) ($connection['provider_code'] ?? '') === 'zalo_oa') {
+            $normalized = $this->normalize_zalo_payload($payload);
+            $entityType = 'zalo_user';
+            $jobType = $normalized['event_type'] === 'follow' ? 'lead_candidate' : 'inbound_message';
+            $externalId = $normalized['external_message_id'] ?: ($normalized['external_user_id'] ?: (string) $externalId);
+        }
 
         $existing = $this->landlord_db()
             ->where('tenant_id', $tenantId)
@@ -338,6 +385,13 @@ class Kt_integration_model extends App_Model
     public function process_job(array $job)
     {
         try {
+            if ((string) ($job['provider_code'] ?? '') === 'zalo_oa') {
+                $payload = kt_integration_hub_json_decode((string) ($job['payload_json'] ?? ''), []);
+                $leadId = $this->write_zalo_lead_to_tenant((int) $job['tenant_id'], (int) ($job['connection_id'] ?? 0), $payload);
+
+                return $this->mark_job_done($job, ['lead_id' => $leadId]);
+            }
+
             $entityType = (string) ($job['entity_type'] ?? '');
             if ($entityType !== 'lead') {
                 return $this->mark_job_done($job, ['message' => 'Stored event only. No writer for this entity yet.']);
@@ -472,6 +526,166 @@ class Kt_integration_model extends App_Model
         return (int) $leadId;
     }
 
+    private function write_zalo_lead_to_tenant($tenantId, $connectionId, array $payload)
+    {
+        $normalized = $this->normalize_zalo_payload($payload);
+        $externalUserId = trim((string) ($normalized['external_user_id'] ?? ''));
+        if ($externalUserId === '') {
+            throw new RuntimeException('Zalo user id is missing.');
+        }
+
+        $existingLink = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('provider_code', 'zalo_oa')
+            ->where('entity_type', 'zalo_user')
+            ->where('external_id', $externalUserId)
+            ->get(db_prefix() . 'kt_integration_entity_links')
+            ->row_array();
+        if ($existingLink) {
+            $leadId = (int) $existingLink['local_id'];
+            $this->link_zalo_message($tenantId, $connectionId, $leadId, $normalized, $payload);
+
+            return $leadId;
+        }
+
+        $tenant = $this->get_tenant($tenantId);
+        if (!$tenant) {
+            throw new RuntimeException('Tenant not found.');
+        }
+
+        $connection = $this->get_connection($connectionId);
+        $settings = kt_integration_hub_json_decode((string) ($connection['settings_json'] ?? ''), []);
+        $landlordDb = $this->landlord_db();
+        $CI = &get_instance();
+        $previousDb = $CI->db;
+
+        if (!class_exists('DatabaseSwitcher', false)) {
+            require_once module_dir_path('kt_saas', 'tenant_bootstrap/DatabaseSwitcher.php');
+        }
+
+        $switcher = new DatabaseSwitcher();
+        $switchResult = $switcher->switchConnection($tenant);
+        if (empty($switchResult['switched'])) {
+            throw new RuntimeException('Tenant DB switch failed: ' . (string) ($switchResult['message'] ?? 'unknown'));
+        }
+
+        $this->db = $CI->db;
+        try {
+            $leadId = $this->create_zalo_tenant_lead($normalized, $payload, $settings);
+        } finally {
+            $CI->db = $landlordDb ?: $previousDb;
+            $this->db = $CI->db;
+            $CI->config->set_item('kt_saas_landlord_db', $landlordDb ?: $previousDb);
+        }
+
+        $this->landlord_db()->insert(db_prefix() . 'kt_integration_entity_links', [
+            'tenant_id' => (int) $tenantId,
+            'provider_code' => 'zalo_oa',
+            'connection_id' => $connectionId ?: null,
+            'entity_type' => 'zalo_user',
+            'local_id' => (int) $leadId,
+            'external_id' => $externalUserId,
+            'external_hash' => sha1(kt_integration_hub_json_encode($payload)),
+            'last_synced_at' => kt_integration_hub_now(),
+            'created_at' => kt_integration_hub_now(),
+            'updated_at' => kt_integration_hub_now(),
+        ]);
+        $this->link_zalo_message($tenantId, $connectionId, $leadId, $normalized, $payload);
+
+        return (int) $leadId;
+    }
+
+    private function create_zalo_tenant_lead(array $normalized, array $rawPayload, array $settings)
+    {
+        $statusId = (int) ($settings['lead_status'] ?? 0);
+        if ($statusId <= 0) {
+            $statusId = $this->default_lead_status_id();
+        }
+        $sourceName = trim((string) ($settings['default_lead_source'] ?? 'Zalo OA')) ?: 'Zalo OA';
+        $sourceId = (int) ($settings['lead_source'] ?? 0);
+        if ($sourceId <= 0) {
+            $sourceId = $this->integration_lead_source_id($sourceName);
+        }
+
+        $externalUserId = trim((string) ($normalized['external_user_id'] ?? ''));
+        $messageText = trim((string) ($normalized['message_text'] ?? ''));
+        $description = "Nguồn: Zalo OA\n";
+        $description .= "Zalo User ID: " . $externalUserId . "\n";
+        if (!empty($normalized['external_message_id'])) {
+            $description .= "Zalo Message ID: " . (string) $normalized['external_message_id'] . "\n";
+        }
+        if ($messageText !== '') {
+            $description .= "Tin nhắn: " . $messageText . "\n";
+        }
+        $description .= "\nIntegration payload:\n" . kt_integration_hub_json_encode(kt_integration_hub_redact_secrets($rawPayload));
+
+        $this->db->insert(db_prefix() . 'leads', [
+            'hash' => app_generate_hash(),
+            'name' => trim((string) ($normalized['name'] ?? '')) ?: 'Zalo User ' . $externalUserId,
+            'company' => '',
+            'description' => nl2br($description),
+            'assigned' => (int) ($settings['lead_assigned'] ?? 0),
+            'dateadded' => kt_integration_hub_now(),
+            'status' => $statusId,
+            'source' => $sourceId,
+            'addedfrom' => get_staff_user_id() ?: 0,
+            'email' => '',
+            'phonenumber' => '',
+            'is_public' => 0,
+            'country' => 0,
+            'address' => '',
+        ]);
+
+        $leadId = (int) $this->db->insert_id();
+        if ($leadId <= 0) {
+            throw new RuntimeException('Unable to create tenant lead.');
+        }
+
+        if ($this->db->table_exists(db_prefix() . 'lead_activity_log')) {
+            $this->db->insert(db_prefix() . 'lead_activity_log', [
+                'leadid' => $leadId,
+                'description' => 'Integration Hub lead created from Zalo OA',
+                'date' => kt_integration_hub_now(),
+                'staffid' => get_staff_user_id() ?: 0,
+                'additional_data' => '',
+                'custom_activity' => 1,
+            ]);
+        }
+
+        return $leadId;
+    }
+
+    private function link_zalo_message($tenantId, $connectionId, $leadId, array $normalized, array $payload)
+    {
+        $messageId = trim((string) ($normalized['external_message_id'] ?? ''));
+        if ($messageId === '') {
+            return;
+        }
+
+        $exists = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('provider_code', 'zalo_oa')
+            ->where('entity_type', 'zalo_message')
+            ->where('external_id', $messageId)
+            ->count_all_results(db_prefix() . 'kt_integration_entity_links') > 0;
+        if ($exists) {
+            return;
+        }
+
+        $this->landlord_db()->insert(db_prefix() . 'kt_integration_entity_links', [
+            'tenant_id' => (int) $tenantId,
+            'provider_code' => 'zalo_oa',
+            'connection_id' => $connectionId ?: null,
+            'entity_type' => 'zalo_message',
+            'local_id' => (int) $leadId,
+            'external_id' => $messageId,
+            'external_hash' => sha1(kt_integration_hub_json_encode($payload)),
+            'last_synced_at' => kt_integration_hub_now(),
+            'created_at' => kt_integration_hub_now(),
+            'updated_at' => kt_integration_hub_now(),
+        ]);
+    }
+
     private function upsert_tenant_lead(array $lead, array $rawPayload)
     {
         $email = trim((string) ($lead['email'] ?? ''));
@@ -545,6 +759,67 @@ class Kt_integration_model extends App_Model
         ];
     }
 
+    private function normalize_zalo_payload(array $payload)
+    {
+        $eventType = trim((string) ($payload['event_name'] ?? $payload['event_type'] ?? 'zalo_event'));
+        $sender = is_array($payload['sender'] ?? null) ? $payload['sender'] : [];
+        $follower = is_array($payload['follower'] ?? null) ? $payload['follower'] : [];
+        $message = is_array($payload['message'] ?? null) ? $payload['message'] : [];
+        $externalUserId = trim((string) ($sender['id'] ?? $payload['user_id_by_app'] ?? $follower['id'] ?? $payload['user_id'] ?? ''));
+        $messageId = trim((string) ($message['msg_id'] ?? $payload['msg_id'] ?? ''));
+        $messageText = trim((string) ($message['text'] ?? $message['message'] ?? $payload['text'] ?? ''));
+
+        return [
+            'source_provider' => 'zalo_oa',
+            'external_user_id' => $externalUserId,
+            'external_message_id' => $messageId,
+            'event_type' => $eventType,
+            'message_text' => $messageText,
+            'name' => $externalUserId !== '' ? 'Zalo User ' . $externalUserId : 'Zalo User',
+            'phone' => '',
+            'email' => '',
+            'description' => trim('Zalo OA message: ' . $messageText),
+            'raw' => $payload,
+        ];
+    }
+
+    private function connection_settings_payload($providerCode, array $data, array $existing)
+    {
+        $existingSettings = kt_integration_hub_json_decode((string) ($existing['settings_json'] ?? ''), []);
+        if ($providerCode === 'zalo_oa') {
+            $connectionForUrls = [
+                'provider_code' => 'zalo_oa',
+                'public_key' => (string) ($existing['public_key'] ?? ''),
+            ];
+
+            return kt_integration_hub_redact_secrets([
+                'app_id' => trim((string) ($data['app_id'] ?? ($existingSettings['app_id'] ?? ''))),
+                'oa_id' => trim((string) ($data['oa_id'] ?? ($existing['external_account_id'] ?? ($existingSettings['oa_id'] ?? '')))),
+                'oauth_callback_url' => kt_integration_hub_oauth_callback_url($connectionForUrls, 'zalo_oa'),
+                'webhook_url' => kt_integration_hub_webhook_url($connectionForUrls),
+                'default_lead_source' => trim((string) ($data['default_lead_source'] ?? ($existingSettings['default_lead_source'] ?? 'Zalo OA'))) ?: 'Zalo OA',
+                'lead_assigned' => (int) ($data['lead_assigned'] ?? ($existingSettings['lead_assigned'] ?? 0)),
+                'lead_status' => (int) ($data['lead_status'] ?? ($existingSettings['lead_status'] ?? 0)),
+                'lead_source' => (int) ($data['lead_source'] ?? ($existingSettings['lead_source'] ?? 0)),
+                'oauth_status' => !empty($existing['access_token_encrypted']) ? 'token_stored' : 'not_connected',
+                'connector_scope' => 'zalo_oa_v1_webhook_intake',
+            ]);
+        }
+
+        return kt_integration_hub_redact_secrets([
+            'lead_assigned' => (int) ($data['lead_assigned'] ?? ($existingSettings['lead_assigned'] ?? 0)),
+            'lead_status' => (int) ($data['lead_status'] ?? ($existingSettings['lead_status'] ?? 0)),
+            'lead_source' => (int) ($data['lead_source'] ?? ($existingSettings['lead_source'] ?? 0)),
+        ]);
+    }
+
+    private function connection_setting(array $connection, $key, $default = '')
+    {
+        $settings = kt_integration_hub_json_decode((string) ($connection['settings_json'] ?? ''), []);
+
+        return $settings[$key] ?? $default;
+    }
+
     private function default_lead_status_id()
     {
         $table = db_prefix() . 'leads_status';
@@ -559,15 +834,16 @@ class Kt_integration_model extends App_Model
         return (int) ($row['id'] ?? 1);
     }
 
-    private function integration_lead_source_id()
+    private function integration_lead_source_id($sourceName = 'Integration Hub')
     {
-        $row = $this->db->where('name', 'Integration Hub')->get(db_prefix() . 'leads_sources')->row_array();
+        $sourceName = trim((string) $sourceName) ?: 'Integration Hub';
+        $row = $this->db->where('name', $sourceName)->get(db_prefix() . 'leads_sources')->row_array();
         if ($row) {
             return (int) $row['id'];
         }
 
         $this->db->insert(db_prefix() . 'leads_sources', [
-            'name' => 'Integration Hub',
+            'name' => $sourceName,
         ]);
 
         return (int) $this->db->insert_id();
@@ -643,6 +919,21 @@ class Kt_integration_model extends App_Model
 
     private function external_event_id(array $payload, $rawBody)
     {
+        if (($payload['event_name'] ?? '') !== '' || isset($payload['sender']) || isset($payload['follower'])) {
+            $normalized = $this->normalize_zalo_payload($payload);
+            if (!empty($normalized['external_message_id'])) {
+                return (string) $normalized['external_message_id'];
+            }
+            $parts = array_filter([
+                (string) ($normalized['event_type'] ?? ''),
+                (string) ($normalized['external_user_id'] ?? ''),
+                (string) ($payload['timestamp'] ?? ''),
+            ]);
+            if (!empty($parts)) {
+                return implode(':', $parts);
+            }
+        }
+
         $id = trim((string) ($payload['event_id'] ?? $payload['external_event_id'] ?? $payload['external_id'] ?? $payload['id'] ?? ''));
 
         return $id !== '' ? $id : sha1((string) $rawBody);

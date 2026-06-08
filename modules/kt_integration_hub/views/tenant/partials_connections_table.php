@@ -17,10 +17,10 @@
                     <td><?php echo html_escape($connection['connection_name'] ?? ''); ?></td>
                     <td><span class="label label-<?php echo kt_integration_hub_status_badge_class($connection['status']); ?>"><?php echo html_escape($connection['status']); ?></span></td>
                     <td>
-                        <?php if (($connection['provider_code'] ?? '') === 'custom_webhook') { ?>
+                        <?php if (in_array(($connection['provider_code'] ?? ''), ['custom_webhook', 'zalo_oa'], true)) { ?>
                             <code id="kt-webhook-url-<?php echo (int) $connection['id']; ?>"><?php echo html_escape(kt_integration_hub_webhook_url($connection)); ?></code>
                             <button type="button" class="btn btn-default btn-xs kt-copy-btn" data-copy-target="#kt-webhook-url-<?php echo (int) $connection['id']; ?>"><?php echo _l('kt_integration_hub_copy_url'); ?></button>
-                            <pre class="hide" id="kt-webhook-curl-<?php echo (int) $connection['id']; ?>"><?php echo html_escape(kt_integration_hub_test_curl($connection)); ?></pre>
+                            <pre class="hide" id="kt-webhook-curl-<?php echo (int) $connection['id']; ?>"><?php echo html_escape(($connection['provider_code'] ?? '') === 'zalo_oa' ? kt_integration_hub_zalo_test_curl($connection) : kt_integration_hub_test_curl($connection)); ?></pre>
                             <button type="button" class="btn btn-default btn-xs kt-copy-btn" data-copy-target="#kt-webhook-curl-<?php echo (int) $connection['id']; ?>"><?php echo _l('kt_integration_hub_copy_test_curl'); ?></button>
                         <?php } else { ?>
                             <span class="text-muted"><?php echo _l('kt_integration_hub_not_applicable'); ?></span>

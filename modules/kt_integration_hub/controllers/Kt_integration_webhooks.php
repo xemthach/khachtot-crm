@@ -45,7 +45,12 @@ class Kt_integration_webhooks extends App_Controller
 
         $rawBody = (string) file_get_contents('php://input');
         $headers = $this->requestHeaders();
-        $verify = $this->Kt_integration_model->verify_custom_webhook($connection, $rawBody, $headers);
+        $payload = $this->parsePayload($rawBody);
+        if (empty($payload)) {
+            $this->jsonResponse(['success' => false, 'message' => 'Invalid payload.'], 400);
+            return;
+        }
+        $verify = $this->verifyRequest($providerCode, $connection, $payload, $rawBody, $headers);
         if (empty($verify['success'])) {
             $this->Kt_integration_model->log('warning', 'webhook.auth_failed', (string) ($verify['message'] ?? 'Webhook authentication failed.'), [
                 'provider_code' => $providerCode,
@@ -55,19 +60,50 @@ class Kt_integration_webhooks extends App_Controller
             return;
         }
 
-        $payload = $this->parsePayload($rawBody);
-        if (empty($payload)) {
-            $this->jsonResponse(['success' => false, 'message' => 'Invalid payload.'], 400);
-            return;
-        }
-
-        $result = $this->Kt_integration_model->store_webhook_event($connection, $payload, $headers, $rawBody, 'verified');
+        $result = $this->Kt_integration_model->store_webhook_event($connection, $payload, $headers, $rawBody, (string) ($verify['status'] ?? 'verified'));
         if (!empty($result['duplicate'])) {
             $this->jsonResponse(['success' => true, 'status' => 'duplicate', 'event_id' => (int) $result['event_id']]);
             return;
         }
 
         $this->jsonResponse(['success' => !empty($result['success']), 'event_id' => (int) ($result['event_id'] ?? 0)], !empty($result['success']) ? 200 : 500);
+    }
+
+    public function zalo_oauth_callback($publicKey = '')
+    {
+        $publicKey = trim((string) rawurldecode((string) $publicKey));
+        $connection = $this->Kt_integration_model->get_connection_by_public_key('zalo_oa', $publicKey);
+        if (!$connection) {
+            show_404();
+        }
+
+        $code = trim((string) $this->input->get('code'));
+        $state = trim((string) $this->input->get('state'));
+        $error = trim((string) $this->input->get('error'));
+        $this->Kt_integration_model->log($error !== '' ? 'warning' : 'info', 'zalo.oauth_callback_received', 'Zalo OAuth callback received.', [
+            'code_present' => $code !== '',
+            'state_present' => $state !== '',
+            'error' => $error,
+        ], (int) $connection['tenant_id'], (int) $connection['id'], 'zalo_oa');
+
+        $this->jsonResponse([
+            'success' => $error === '',
+            'message' => $error !== '' ? 'Zalo OAuth returned an error.' : 'OAuth callback received. Token exchange is pending real credential validation.',
+        ], $error !== '' ? 400 : 200);
+    }
+
+    private function verifyRequest($providerCode, array $connection, array $payload, $rawBody, array $headers)
+    {
+        if ($providerCode === 'zalo_oa') {
+            return $this->Kt_integration_model->verify_zalo_webhook($connection, $payload, $rawBody, $headers);
+        }
+
+        $verify = $this->Kt_integration_model->verify_custom_webhook($connection, $rawBody, $headers);
+        if (!empty($verify['success']) && empty($verify['status'])) {
+            $verify['status'] = 'verified';
+        }
+
+        return $verify;
     }
 
     private function parsePayload($rawBody)

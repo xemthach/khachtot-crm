@@ -151,13 +151,13 @@ foreach ($providerColumns as $column => $sql) {
 }
 
 $providers = [
-    ['facebook_page', 'Facebook Page / Messenger', 'social', 'oauth', 'planned', 'Cần cấu hình Facebook App, OAuth và quyền Page trước khi bật kết nối thật.', 1, 1, 1],
-    ['facebook_lead_ads', 'Facebook Lead Ads', 'ads', 'oauth', 'planned', 'Cần cấu hình Facebook App, OAuth và quyền Lead Ads trước khi bật kết nối thật.', 1, 1, 1],
-    ['zalo_oa', 'Zalo OA', 'social', 'oauth', 'planned', 'Cần cấu hình Zalo App/OA OAuth trước khi bật kết nối thật.', 1, 1, 1],
-    ['tiktok_shop', 'TikTok Shop', 'commerce', 'partner_api', 'planned', 'Cần cấu hình TikTok Shop partner API trước khi bật kết nối thật.', 1, 1, 1],
-    ['shopee', 'Shopee', 'commerce', 'partner_api', 'planned', 'Cần cấu hình Shopee Open Platform partner API trước khi bật kết nối thật.', 1, 1, 1],
-    ['website_form', 'Website Form', 'form', 'custom_hmac', 'planned', 'Có thể dùng Custom Webhook trong MVP; Website Form riêng sẽ được chuẩn hóa sau.', 0, 1, 0],
-    ['custom_webhook', 'Custom Webhook', 'generic', 'custom_hmac', 'ready', 'Sẵn sàng nhận lead/event qua webhook HMAC.', 0, 1, 0],
+    ['facebook_page', 'Facebook Page / Messenger', 'social', 'oauth', 'planned', 'Facebook App, OAuth and Page permissions are required before this connector can be enabled.', 1, 1, 1],
+    ['facebook_lead_ads', 'Facebook Lead Ads', 'ads', 'oauth', 'planned', 'Facebook Lead Ads OAuth and lead retrieval permissions are required before this connector can be enabled.', 1, 1, 1],
+    ['zalo_oa', 'Zalo OA', 'social', 'oauth', 'beta', 'Zalo OA V1 beta supports inbound webhook intake and local simulated tests.', 1, 1, 1],
+    ['tiktok_shop', 'TikTok Shop', 'commerce', 'partner_api', 'planned', 'TikTok Shop partner API credentials are required before this connector can be enabled.', 1, 1, 1],
+    ['shopee', 'Shopee', 'commerce', 'partner_api', 'planned', 'Shopee Open Platform partner API credentials are required before this connector can be enabled.', 1, 1, 1],
+    ['website_form', 'Website Form', 'form', 'custom_hmac', 'planned', 'Website Form will reuse Custom Webhook after an embed/API flow is implemented.', 0, 1, 0],
+    ['custom_webhook', 'Custom Webhook', 'generic', 'custom_hmac', 'ready', 'Ready to receive HMAC-SHA256 webhook events through the global public endpoint.', 0, 1, 0],
 ];
 
 foreach ($providers as $provider) {
