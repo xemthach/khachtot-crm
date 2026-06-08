@@ -46,6 +46,15 @@ class Kt_integration_webhooks extends App_Controller
         $rawBody = (string) file_get_contents('php://input');
         $headers = $this->requestHeaders();
         $payload = $this->parsePayload($rawBody);
+        if ($providerCode === 'zalo_oa' && $this->isZaloVerificationProbe($payload)) {
+            $this->Kt_integration_model->log('info', 'zalo.webhook_probe', 'Zalo webhook URL verification probe accepted.', [
+                'headers' => $headers,
+                'payload_present' => !empty($payload),
+            ], (int) $connection['tenant_id'], (int) $connection['id'], $providerCode);
+            $this->jsonResponse(['success' => true, 'status' => 'verified']);
+            return;
+        }
+
         if (empty($payload)) {
             $this->jsonResponse(['success' => false, 'message' => 'Invalid payload.'], 400);
             return;
@@ -104,6 +113,26 @@ class Kt_integration_webhooks extends App_Controller
         }
 
         return $verify;
+    }
+
+    private function isZaloVerificationProbe(array $payload)
+    {
+        if (empty($payload)) {
+            return true;
+        }
+
+        $eventName = trim((string) ($payload['event_name'] ?? $payload['event_type'] ?? $payload['type'] ?? ''));
+        if ($eventName !== '') {
+            return false;
+        }
+
+        foreach (['sender', 'follower', 'message', 'recipient', 'user_id', 'user_id_by_app'] as $key) {
+            if (array_key_exists($key, $payload)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function parsePayload($rawBody)
