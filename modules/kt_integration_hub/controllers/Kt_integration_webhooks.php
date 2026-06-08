@@ -80,8 +80,18 @@ class Kt_integration_webhooks extends App_Controller
 
     public function zalo_oauth_callback($publicKey = '')
     {
+        $this->oauthCallback('zalo_oa', $publicKey, 'Zalo OAuth callback received.', 'OAuth callback received. Token exchange is pending real credential validation.');
+    }
+
+    public function tiktok_oauth_callback($publicKey = '')
+    {
+        $this->oauthCallback('tiktok_shop', $publicKey, 'TikTok Shop OAuth callback received.', 'OAuth callback received. TikTok Shop token exchange is pending Partner Center credential verification.');
+    }
+
+    private function oauthCallback($providerCode, $publicKey, $logMessage, $successMessage)
+    {
         $publicKey = trim((string) rawurldecode((string) $publicKey));
-        $connection = $this->Kt_integration_model->get_connection_by_public_key('zalo_oa', $publicKey);
+        $connection = $this->Kt_integration_model->get_connection_by_public_key($providerCode, $publicKey);
         if (!$connection) {
             show_404();
         }
@@ -89,15 +99,15 @@ class Kt_integration_webhooks extends App_Controller
         $code = trim((string) $this->input->get('code'));
         $state = trim((string) $this->input->get('state'));
         $error = trim((string) $this->input->get('error'));
-        $this->Kt_integration_model->log($error !== '' ? 'warning' : 'info', 'zalo.oauth_callback_received', 'Zalo OAuth callback received.', [
+        $this->Kt_integration_model->log($error !== '' ? 'warning' : 'info', $providerCode . '.oauth_callback_received', $logMessage, [
             'code_present' => $code !== '',
             'state_present' => $state !== '',
             'error' => $error,
-        ], (int) $connection['tenant_id'], (int) $connection['id'], 'zalo_oa');
+        ], (int) $connection['tenant_id'], (int) $connection['id'], $providerCode);
 
         $this->jsonResponse([
             'success' => $error === '',
-            'message' => $error !== '' ? 'Zalo OAuth returned an error.' : 'OAuth callback received. Token exchange is pending real credential validation.',
+            'message' => $error !== '' ? 'OAuth provider returned an error.' : $successMessage,
         ], $error !== '' ? 400 : 200);
     }
 
@@ -105,6 +115,9 @@ class Kt_integration_webhooks extends App_Controller
     {
         if ($providerCode === 'zalo_oa') {
             return $this->Kt_integration_model->verify_zalo_webhook($connection, $payload, $rawBody, $headers);
+        }
+        if ($providerCode === 'tiktok_shop') {
+            return $this->Kt_integration_model->verify_tiktok_webhook($connection, $payload, $rawBody, $headers);
         }
 
         $verify = $this->Kt_integration_model->verify_custom_webhook($connection, $rawBody, $headers);

@@ -110,6 +110,18 @@ class Kt_integration_hub extends AdminController
         $this->render(KT_INTEGRATION_HUB_MODULE . '/' . ($data['is_tenant'] ? 'tenant' : 'admin') . '/jobs', $data);
     }
 
+    public function channel_orders($id = null)
+    {
+        $this->requireCapability('kt_integration_hub_view');
+        $tenantId = $this->scopeTenantId();
+
+        $data['title'] = _l('kt_integration_hub_channel_orders');
+        $data['orders'] = $this->Kt_integration_model->get_channel_orders($tenantId, 200);
+        $data['order'] = $id ? $this->Kt_integration_model->get_channel_order((int) $id, $tenantId) : null;
+        $data['is_tenant'] = kt_integration_hub_is_tenant_runtime();
+        $this->render(KT_INTEGRATION_HUB_MODULE . '/' . ($data['is_tenant'] ? 'tenant' : 'admin') . '/channel_orders', $data);
+    }
+
     public function retry_job($id)
     {
         $this->requireCapability('kt_integration_hub_retry_jobs');

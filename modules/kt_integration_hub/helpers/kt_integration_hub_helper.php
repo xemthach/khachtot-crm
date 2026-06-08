@@ -215,3 +215,16 @@ if (!function_exists('kt_integration_hub_zalo_test_curl')) {
             . "  --data \"\$RAW\"";
     }
 }
+
+if (!function_exists('kt_integration_hub_tiktok_test_curl')) {
+    function kt_integration_hub_tiktok_test_curl(array $connection)
+    {
+        $url = kt_integration_hub_webhook_url($connection);
+        $payload = '{"event_id":"tts-event-001","event_type":"ORDER_STATUS_CHANGE","order_id":"TTS-ORDER-001","shop_id":"TTS-SHOP-001","status":"AWAITING_SHIPMENT","timestamp":1780000000,"mock_order_detail":{"order_id":"TTS-ORDER-001","order_code":"TTS-ORDER-001","status":"AWAITING_SHIPMENT","payment_status":"PAID","fulfillment_status":"PENDING","buyer":{"name":"Nguyen Van TikTok","phone":"0909000002"},"currency":"VND","subtotal":250000,"shipping_fee":20000,"discount_total":10000,"grand_total":260000,"items":[{"item_id":"product_001","sku_id":"sku_001","sku":"SKU-TTS-001","name":"San pham TikTok Test","quantity":1,"unit_price":250000,"total_price":250000}],"ordered_at":"2026-06-08 10:00:00"}}';
+
+        return "RAW='" . $payload . "'\n"
+            . "curl -i -X POST \"" . $url . "\" \\\n"
+            . "  -H \"Content-Type: application/json\" \\\n"
+            . "  --data \"\$RAW\"";
+    }
+}

@@ -132,6 +132,56 @@ $tables[] = "CREATE TABLE IF NOT EXISTS `" . db_prefix() . "kt_integration_logs`
   KEY `level` (`level`)
 ) ENGINE=InnoDB DEFAULT CHARSET=" . $charset . " COLLATE=" . $collation . ";";
 
+$tables[] = "CREATE TABLE IF NOT EXISTS `" . db_prefix() . "kt_integration_channel_orders` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` INT UNSIGNED NOT NULL,
+  `connection_id` INT UNSIGNED NOT NULL,
+  `provider_code` VARCHAR(64) NOT NULL,
+  `external_order_id` VARCHAR(191) NOT NULL,
+  `external_order_code` VARCHAR(191) NULL,
+  `order_status` VARCHAR(64) NULL,
+  `payment_status` VARCHAR(64) NULL,
+  `fulfillment_status` VARCHAR(64) NULL,
+  `buyer_name` VARCHAR(191) NULL,
+  `buyer_phone_masked` VARCHAR(64) NULL,
+  `buyer_email` VARCHAR(191) NULL,
+  `currency` VARCHAR(16) NOT NULL DEFAULT 'VND',
+  `subtotal` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `shipping_fee` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `discount_total` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `grand_total` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `ordered_at` DATETIME NULL,
+  `synced_at` DATETIME NULL,
+  `raw_json` LONGTEXT NULL,
+  `mapping_status` VARCHAR(32) NOT NULL DEFAULT 'unmapped',
+  `created_at` DATETIME NULL,
+  `updated_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `tenant_provider_order` (`tenant_id`, `provider_code`, `external_order_id`),
+  KEY `tenant_status` (`tenant_id`, `order_status`),
+  KEY `connection_id` (`connection_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=" . $charset . " COLLATE=" . $collation . ";";
+
+$tables[] = "CREATE TABLE IF NOT EXISTS `" . db_prefix() . "kt_integration_channel_order_items` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `tenant_id` INT UNSIGNED NOT NULL,
+  `channel_order_id` BIGINT UNSIGNED NOT NULL,
+  `provider_code` VARCHAR(64) NOT NULL,
+  `external_item_id` VARCHAR(191) NULL,
+  `external_sku_id` VARCHAR(191) NULL,
+  `sku` VARCHAR(191) NULL,
+  `item_name` VARCHAR(255) NULL,
+  `quantity` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `unit_price` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `total_price` DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+  `raw_json` LONGTEXT NULL,
+  `created_at` DATETIME NULL,
+  `updated_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `tenant_order` (`tenant_id`, `channel_order_id`),
+  KEY `sku` (`sku`)
+) ENGINE=InnoDB DEFAULT CHARSET=" . $charset . " COLLATE=" . $collation . ";";
+
 foreach ($tables as $sql) {
     $CI->db->query($sql);
 }
@@ -154,7 +204,7 @@ $providers = [
     ['facebook_page', 'Facebook Page / Messenger', 'social', 'oauth', 'planned', 'Facebook App, OAuth and Page permissions are required before this connector can be enabled.', 1, 1, 1],
     ['facebook_lead_ads', 'Facebook Lead Ads', 'ads', 'oauth', 'planned', 'Facebook Lead Ads OAuth and lead retrieval permissions are required before this connector can be enabled.', 1, 1, 1],
     ['zalo_oa', 'Zalo OA', 'social', 'oauth', 'beta', 'Zalo OA V1 beta supports inbound webhook intake and local simulated tests.', 1, 1, 1],
-    ['tiktok_shop', 'TikTok Shop', 'commerce', 'partner_api', 'planned', 'TikTok Shop partner API credentials are required before this connector can be enabled.', 1, 1, 1],
+    ['tiktok_shop', 'TikTok Shop', 'commerce', 'partner_api', 'beta', 'TikTok Shop V1 beta supports dry-run order webhook intake into channel order staging.', 1, 1, 1],
     ['shopee', 'Shopee', 'commerce', 'partner_api', 'planned', 'Shopee Open Platform partner API credentials are required before this connector can be enabled.', 1, 1, 1],
     ['website_form', 'Website Form', 'form', 'custom_hmac', 'planned', 'Website Form will reuse Custom Webhook after an embed/API flow is implemented.', 0, 1, 0],
     ['custom_webhook', 'Custom Webhook', 'generic', 'custom_hmac', 'ready', 'Ready to receive HMAC-SHA256 webhook events through the global public endpoint.', 0, 1, 0],
@@ -218,4 +268,8 @@ if ($CI->db->table_exists(db_prefix() . 'kt_saas_module_catalog')) {
     }
 }
 
-add_option('kt_integration_hub_schema_version', KT_INTEGRATION_HUB_VERSION);
+if (get_option('kt_integration_hub_schema_version') === false) {
+    add_option('kt_integration_hub_schema_version', KT_INTEGRATION_HUB_VERSION);
+} else {
+    update_option('kt_integration_hub_schema_version', KT_INTEGRATION_HUB_VERSION);
+}

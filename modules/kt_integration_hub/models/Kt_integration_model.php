@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 defined('BASEPATH') or exit('No direct script access allowed');
 
@@ -84,13 +84,16 @@ class Kt_integration_model extends App_Model
             return ['success' => false, 'message' => 'This provider is not ready yet. No connection was created.'];
         }
 
-        if (!in_array($providerCode, ['custom_webhook', 'zalo_oa'], true)) {
+        if (!in_array($providerCode, ['custom_webhook', 'zalo_oa', 'tiktok_shop'], true)) {
             return ['success' => false, 'message' => 'This connector is not implemented yet.'];
         }
 
         $authType = trim((string) ($provider['auth_type'] ?? 'custom_hmac'));
         $plainSecret = $data['webhook_secret'] ?? null;
         if ($providerCode === 'zalo_oa') {
+            $plainSecret = $data['app_secret'] ?? null;
+        }
+        if ($providerCode === 'tiktok_shop') {
             $plainSecret = $data['app_secret'] ?? null;
         }
         $generatedSecret = null;
@@ -104,9 +107,7 @@ class Kt_integration_model extends App_Model
             'tenant_id' => $tenantId,
             'provider_code' => $providerCode,
             'connection_name' => trim((string) ($data['connection_name'] ?? '')),
-            'external_account_id' => $providerCode === 'zalo_oa'
-                ? trim((string) ($data['oa_id'] ?? ($existing['external_account_id'] ?? '')))
-                : trim((string) ($data['external_account_id'] ?? '')),
+            'external_account_id' => $this->external_account_id_payload($providerCode, $data, $existing),
             'external_account_name' => trim((string) ($data['external_account_name'] ?? '')),
             'status' => !empty($data['is_active']) ? 'connected' : 'disconnected',
             'auth_type' => $authType,
@@ -128,7 +129,7 @@ class Kt_integration_model extends App_Model
         $payload['created_at'] = kt_integration_hub_now();
         $this->landlord_db()->insert(db_prefix() . 'kt_integration_connections', $payload);
         $insertId = (int) $this->landlord_db()->insert_id();
-        if ($insertId > 0 && $providerCode === 'zalo_oa') {
+        if ($insertId > 0 && in_array($providerCode, ['zalo_oa', 'tiktok_shop'], true)) {
             $payload['id'] = $insertId;
             $payload['settings_json'] = kt_integration_hub_json_encode($this->connection_settings_payload($providerCode, $data, $payload));
             $this->landlord_db()->where('id', $insertId)->update(db_prefix() . 'kt_integration_connections', [
@@ -258,6 +259,21 @@ class Kt_integration_model extends App_Model
         return ['success' => true, 'status' => 'valid'];
     }
 
+    public function verify_tiktok_webhook(array $connection, array $payload, $rawBody, array $headers)
+    {
+        $mode = (string) $this->connection_setting($connection, 'connection_mode', 'dry_run');
+        $dryRun = $mode === 'dry_run' || (bool) $this->connection_setting($connection, 'dry_run_enabled', true);
+        if ($dryRun) {
+            return ['success' => true, 'status' => 'unchecked', 'message' => 'Unsigned TikTok Shop dry-run webhook accepted.'];
+        }
+
+        return [
+            'success' => false,
+            'status' => 'invalid',
+            'message' => 'TikTok Shop webhook signature verification requires Partner Center credential verification.',
+        ];
+    }
+
     public function store_webhook_event(array $connection, array $payload, array $headers, $rawBody, $signatureStatus = 'verified')
     {
         $providerCode = (string) ($connection['provider_code'] ?? 'custom_webhook');
@@ -289,7 +305,7 @@ class Kt_integration_model extends App_Model
         ];
         $this->landlord_db()->insert(db_prefix() . 'kt_integration_webhook_events', $record);
         $eventId = (int) $this->landlord_db()->insert_id();
-        if ($eventId > 0 && !empty($connection['id']) && $providerCode === 'zalo_oa') {
+        if ($eventId > 0 && !empty($connection['id']) && in_array($providerCode, ['zalo_oa', 'tiktok_shop'], true)) {
             $settings = kt_integration_hub_json_decode((string) ($connection['settings_json'] ?? ''), []);
             $settings['last_webhook_at'] = kt_integration_hub_now();
             $this->landlord_db()->where('id', (int) $connection['id'])->update(db_prefix() . 'kt_integration_connections', [
@@ -313,6 +329,12 @@ class Kt_integration_model extends App_Model
             $jobType = $normalized['event_type'] === 'follow' ? 'lead_candidate' : 'inbound_message';
             $externalId = $normalized['external_message_id'] ?: ($normalized['external_user_id'] ?: (string) $externalId);
         }
+        if ((string) ($connection['provider_code'] ?? '') === 'tiktok_shop') {
+            $normalized = $this->normalize_tiktok_order_event($payload);
+            $entityType = 'tiktok_order';
+            $jobType = 'tiktok_order_event';
+            $externalId = $normalized['external_order_id'] ?: (string) $externalId;
+        }
 
         $existing = $this->landlord_db()
             ->where('tenant_id', $tenantId)
@@ -322,6 +344,17 @@ class Kt_integration_model extends App_Model
             ->get(db_prefix() . 'kt_integration_sync_jobs')
             ->row_array();
         if ($existing) {
+            if ((string) ($connection['provider_code'] ?? '') === 'tiktok_shop' && in_array((string) ($existing['status'] ?? ''), ['done', 'failed'], true)) {
+                $this->landlord_db()->where('id', (int) $existing['id'])->update(db_prefix() . 'kt_integration_sync_jobs', [
+                    'webhook_event_id' => (int) $eventId,
+                    'payload_json' => kt_integration_hub_json_encode($payload),
+                    'status' => 'queued',
+                    'attempts' => 0,
+                    'error_message' => null,
+                    'available_at' => kt_integration_hub_now(),
+                    'updated_at' => kt_integration_hub_now(),
+                ]);
+            }
             return (int) $existing['id'];
         }
 
@@ -398,6 +431,15 @@ class Kt_integration_model extends App_Model
     public function process_job(array $job)
     {
         try {
+            if ((string) ($job['provider_code'] ?? '') === 'tiktok_shop') {
+                $payload = kt_integration_hub_json_decode((string) ($job['payload_json'] ?? ''), []);
+                $connection = $this->get_connection((int) ($job['connection_id'] ?? 0));
+                $orderId = (string) ($job['external_id'] ?? '');
+                $channelOrderId = $this->write_tiktok_order_staging((int) $job['tenant_id'], (int) ($job['connection_id'] ?? 0), $payload, $connection ?: [], $orderId);
+
+                return $this->mark_job_done($job, ['channel_order_id' => $channelOrderId]);
+            }
+
             if ((string) ($job['provider_code'] ?? '') === 'zalo_oa') {
                 $payload = kt_integration_hub_json_decode((string) ($job['payload_json'] ?? ''), []);
                 $normalized = $this->normalize_zalo_payload($payload);
@@ -458,6 +500,38 @@ class Kt_integration_model extends App_Model
         }
 
         return $db->order_by('id', 'desc')->limit((int) $limit)->get()->result_array();
+    }
+
+    public function get_channel_orders($tenantId = null, $limit = 200)
+    {
+        $db = $this->landlord_db()
+            ->select('o.*, c.connection_name, c.external_account_name')
+            ->from(db_prefix() . 'kt_integration_channel_orders o')
+            ->join(db_prefix() . 'kt_integration_connections c', 'c.id = o.connection_id', 'left');
+        if ($tenantId !== null) {
+            $db->where('o.tenant_id', (int) $tenantId);
+        }
+
+        return $db->order_by('o.id', 'desc')->limit((int) $limit)->get()->result_array();
+    }
+
+    public function get_channel_order($id, $tenantId = null)
+    {
+        $db = $this->landlord_db()->where('id', (int) $id);
+        if ($tenantId !== null) {
+            $db->where('tenant_id', (int) $tenantId);
+        }
+        $order = $db->get(db_prefix() . 'kt_integration_channel_orders')->row_array();
+        if (!$order) {
+            return null;
+        }
+        $order['items'] = $this->landlord_db()
+            ->where('channel_order_id', (int) $order['id'])
+            ->order_by('id', 'asc')
+            ->get(db_prefix() . 'kt_integration_channel_order_items')
+            ->result_array();
+
+        return $order;
     }
 
     public function retry_job($id, $tenantId = null)
@@ -719,6 +793,222 @@ class Kt_integration_model extends App_Model
         ]);
     }
 
+    private function write_tiktok_order_staging($tenantId, $connectionId, array $payload, array $connection, $externalOrderId = '')
+    {
+        $event = $this->normalize_tiktok_order_event($payload);
+        $detailPayload = is_array($payload['mock_order_detail'] ?? null) ? $payload['mock_order_detail'] : $payload;
+        if (empty($payload['mock_order_detail'])) {
+            $client = $this->tiktok_client();
+            $detailResult = $client->fetchOrderDetail($connection, $externalOrderId ?: $event['external_order_id'], $payload);
+            if (!empty($detailResult['success']) && is_array($detailResult['order'] ?? null)) {
+                $detailPayload = $detailResult['order'];
+            }
+        }
+        $detail = $this->normalize_tiktok_order_detail($detailPayload);
+        if ($detail['external_order_id'] === '' && $externalOrderId !== '') {
+            $detail['external_order_id'] = (string) $externalOrderId;
+        }
+        if ($detail['external_order_id'] === '' && $event['external_order_id'] !== '') {
+            $detail['external_order_id'] = $event['external_order_id'];
+        }
+        if ($detail['external_order_id'] === '') {
+            throw new RuntimeException('TikTok order id is missing.');
+        }
+
+        if (empty($payload['mock_order_detail']) && (string) $this->connection_setting($connection, 'connection_mode', 'dry_run') !== 'dry_run') {
+            throw new RuntimeException('TikTok real order detail pull is pending Partner Center endpoint verification.');
+        }
+
+        if ($detail['order_status'] === '' && $event['order_status'] !== '') {
+            $detail['order_status'] = $event['order_status'];
+        }
+
+        $now = kt_integration_hub_now();
+        $record = [
+            'tenant_id' => (int) $tenantId,
+            'connection_id' => (int) $connectionId,
+            'provider_code' => 'tiktok_shop',
+            'external_order_id' => $detail['external_order_id'],
+            'external_order_code' => $detail['order_code'],
+            'order_status' => $detail['order_status'],
+            'payment_status' => $detail['payment_status'],
+            'fulfillment_status' => $detail['fulfillment_status'],
+            'buyer_name' => $detail['buyer_name'],
+            'buyer_phone_masked' => $this->mask_phone($detail['buyer_phone']),
+            'buyer_email' => $detail['buyer_email'],
+            'currency' => $detail['currency'] ?: 'VND',
+            'subtotal' => (float) $detail['subtotal'],
+            'shipping_fee' => (float) $detail['shipping_fee'],
+            'discount_total' => (float) $detail['discount_total'],
+            'grand_total' => (float) $detail['grand_total'],
+            'ordered_at' => $detail['ordered_at'] ?: null,
+            'synced_at' => $now,
+            'raw_json' => kt_integration_hub_json_encode(kt_integration_hub_redact_secrets($payload)),
+            'mapping_status' => 'unmapped',
+            'updated_at' => $now,
+        ];
+
+        $existing = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('provider_code', 'tiktok_shop')
+            ->where('external_order_id', $detail['external_order_id'])
+            ->get(db_prefix() . 'kt_integration_channel_orders')
+            ->row_array();
+
+        if ($existing) {
+            $this->landlord_db()->where('id', (int) $existing['id'])->update(db_prefix() . 'kt_integration_channel_orders', $record);
+            $channelOrderId = (int) $existing['id'];
+        } else {
+            $record['created_at'] = $now;
+            $this->landlord_db()->insert(db_prefix() . 'kt_integration_channel_orders', $record);
+            $channelOrderId = (int) $this->landlord_db()->insert_id();
+        }
+
+        if ($channelOrderId <= 0) {
+            throw new RuntimeException('Unable to upsert TikTok channel order.');
+        }
+
+        $this->landlord_db()->where('channel_order_id', $channelOrderId)->delete(db_prefix() . 'kt_integration_channel_order_items');
+        foreach ($detail['items'] as $item) {
+            $this->landlord_db()->insert(db_prefix() . 'kt_integration_channel_order_items', [
+                'tenant_id' => (int) $tenantId,
+                'channel_order_id' => $channelOrderId,
+                'provider_code' => 'tiktok_shop',
+                'external_item_id' => (string) ($item['external_item_id'] ?? ''),
+                'external_sku_id' => (string) ($item['external_sku_id'] ?? ''),
+                'sku' => (string) ($item['sku'] ?? ''),
+                'item_name' => (string) ($item['item_name'] ?? ''),
+                'quantity' => (float) ($item['quantity'] ?? 0),
+                'unit_price' => (float) ($item['unit_price'] ?? 0),
+                'total_price' => (float) ($item['total_price'] ?? 0),
+                'raw_json' => kt_integration_hub_json_encode(kt_integration_hub_redact_secrets($item['raw'] ?? $item)),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        $this->upsert_entity_link((int) $tenantId, 'tiktok_shop', (int) $connectionId, 'tiktok_order', $channelOrderId, $detail['external_order_id'], $payload);
+        if ($detail['buyer_phone'] !== '' || $detail['buyer_email'] !== '') {
+            $customerKey = $detail['buyer_email'] !== '' ? $detail['buyer_email'] : $detail['buyer_phone'];
+            $this->upsert_entity_link((int) $tenantId, 'tiktok_shop', (int) $connectionId, 'tiktok_customer', $channelOrderId, $customerKey, [
+                'buyer_name' => $detail['buyer_name'],
+                'buyer_phone_present' => $detail['buyer_phone'] !== '',
+                'buyer_email_present' => $detail['buyer_email'] !== '',
+            ]);
+        }
+
+        $this->log('info', 'tiktok.order_staged', 'TikTok Shop order staged.', [
+            'channel_order_id' => $channelOrderId,
+            'external_order_id' => $detail['external_order_id'],
+            'order_status' => $detail['order_status'],
+            'grand_total' => $detail['grand_total'],
+        ], (int) $tenantId, (int) $connectionId, 'tiktok_shop');
+
+        return $channelOrderId;
+    }
+
+    private function normalize_tiktok_order_event(array $payload)
+    {
+        return [
+            'source_provider' => 'tiktok_shop',
+            'event_id' => (string) ($payload['event_id'] ?? $payload['id'] ?? ''),
+            'event_type' => (string) ($payload['event_type'] ?? $payload['type'] ?? 'tiktok_order_event'),
+            'external_order_id' => (string) ($payload['order_id'] ?? $payload['order']['id'] ?? $payload['external_order_id'] ?? ''),
+            'shop_id' => (string) ($payload['shop_id'] ?? $payload['shop_cipher'] ?? ''),
+            'order_status' => (string) ($payload['status'] ?? $payload['order_status'] ?? ''),
+            'timestamp' => (string) ($payload['timestamp'] ?? ''),
+            'raw' => $payload,
+        ];
+    }
+
+    private function normalize_tiktok_order_detail(array $payload)
+    {
+        $buyer = is_array($payload['buyer'] ?? null) ? $payload['buyer'] : [];
+        $items = [];
+        foreach ((array) ($payload['items'] ?? $payload['line_items'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $items[] = [
+                'external_item_id' => (string) ($item['item_id'] ?? $item['product_id'] ?? ''),
+                'external_sku_id' => (string) ($item['sku_id'] ?? ''),
+                'sku' => (string) ($item['sku'] ?? $item['seller_sku'] ?? ''),
+                'item_name' => (string) ($item['name'] ?? $item['item_name'] ?? $item['product_name'] ?? ''),
+                'quantity' => (float) ($item['quantity'] ?? 0),
+                'unit_price' => (float) ($item['unit_price'] ?? $item['price'] ?? 0),
+                'total_price' => (float) ($item['total_price'] ?? 0),
+                'raw' => $item,
+            ];
+        }
+
+        return [
+            'source_provider' => 'tiktok_shop',
+            'external_order_id' => (string) ($payload['order_id'] ?? $payload['id'] ?? ''),
+            'order_code' => (string) ($payload['order_code'] ?? $payload['order_id'] ?? $payload['id'] ?? ''),
+            'order_status' => (string) ($payload['status'] ?? $payload['order_status'] ?? ''),
+            'payment_status' => (string) ($payload['payment_status'] ?? ''),
+            'fulfillment_status' => (string) ($payload['fulfillment_status'] ?? ''),
+            'buyer_name' => (string) ($buyer['name'] ?? $payload['buyer_name'] ?? ''),
+            'buyer_phone' => (string) ($buyer['phone'] ?? $payload['buyer_phone'] ?? ''),
+            'buyer_email' => (string) ($buyer['email'] ?? $payload['buyer_email'] ?? ''),
+            'currency' => (string) ($payload['currency'] ?? 'VND'),
+            'subtotal' => (float) ($payload['subtotal'] ?? 0),
+            'shipping_fee' => (float) ($payload['shipping_fee'] ?? 0),
+            'discount_total' => (float) ($payload['discount_total'] ?? 0),
+            'grand_total' => (float) ($payload['grand_total'] ?? 0),
+            'ordered_at' => (string) ($payload['ordered_at'] ?? ''),
+            'items' => $items,
+            'raw' => $payload,
+        ];
+    }
+
+    private function upsert_entity_link($tenantId, $providerCode, $connectionId, $entityType, $localId, $externalId, array $payload)
+    {
+        $externalId = trim((string) $externalId);
+        if ($externalId === '') {
+            return;
+        }
+
+        $record = [
+            'connection_id' => $connectionId ?: null,
+            'local_id' => (int) $localId,
+            'external_hash' => sha1(kt_integration_hub_json_encode($payload)),
+            'last_synced_at' => kt_integration_hub_now(),
+            'updated_at' => kt_integration_hub_now(),
+        ];
+        $existing = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('provider_code', (string) $providerCode)
+            ->where('entity_type', (string) $entityType)
+            ->where('external_id', $externalId)
+            ->get(db_prefix() . 'kt_integration_entity_links')
+            ->row_array();
+        if ($existing) {
+            $this->landlord_db()->where('id', (int) $existing['id'])->update(db_prefix() . 'kt_integration_entity_links', $record);
+            return;
+        }
+
+        $record['tenant_id'] = (int) $tenantId;
+        $record['provider_code'] = (string) $providerCode;
+        $record['entity_type'] = (string) $entityType;
+        $record['external_id'] = $externalId;
+        $record['created_at'] = kt_integration_hub_now();
+        $this->landlord_db()->insert(db_prefix() . 'kt_integration_entity_links', $record);
+    }
+
+    private function mask_phone($phone)
+    {
+        $phone = preg_replace('/\D+/', '', (string) $phone);
+        if ($phone === '') {
+            return '';
+        }
+        if (strlen($phone) <= 6) {
+            return str_repeat('*', strlen($phone));
+        }
+
+        return substr($phone, 0, 3) . str_repeat('*', max(strlen($phone) - 6, 3)) . substr($phone, -3);
+    }
+
     private function upsert_tenant_lead(array $lead, array $rawPayload)
     {
         $email = trim((string) ($lead['email'] ?? ''));
@@ -856,6 +1146,40 @@ class Kt_integration_model extends App_Model
             ]);
         }
 
+        if ($providerCode === 'tiktok_shop') {
+            $connectionForUrls = [
+                'provider_code' => 'tiktok_shop',
+                'public_key' => (string) ($existing['public_key'] ?? ''),
+            ];
+            $mode = (string) ($data['connection_mode'] ?? ($existingSettings['connection_mode'] ?? 'dry_run'));
+            if (!in_array($mode, ['dry_run', 'manual_credentials', 'oauth_prepared'], true)) {
+                $mode = 'dry_run';
+            }
+            $hasAccessToken = !empty($existing['access_token_encrypted']) || trim((string) ($data['access_token'] ?? '')) !== '';
+
+            return kt_integration_hub_redact_secrets([
+                'connection_mode' => $mode,
+                'app_key' => trim((string) ($data['app_key'] ?? ($existingSettings['app_key'] ?? ''))),
+                'shop_id' => trim((string) ($data['shop_id'] ?? ($existing['external_account_id'] ?? ($existingSettings['shop_id'] ?? '')))),
+                'shop_cipher' => trim((string) ($data['shop_cipher'] ?? ($existingSettings['shop_cipher'] ?? ''))),
+                'shop_name' => trim((string) ($data['external_account_name'] ?? ($existing['external_account_name'] ?? ($existingSettings['shop_name'] ?? '')))),
+                'region' => strtoupper(trim((string) ($data['region'] ?? ($existingSettings['region'] ?? 'VN')))),
+                'token_expires_at' => trim((string) ($data['token_expires_at'] ?? ($existingSettings['token_expires_at'] ?? ''))),
+                'webhook_url' => kt_integration_hub_webhook_url($connectionForUrls),
+                'oauth_callback_url' => kt_integration_hub_oauth_callback_url($connectionForUrls, 'tiktok_shop'),
+                'sync_orders_enabled' => array_key_exists('sync_orders_enabled', $data) ? (int) !empty($data['sync_orders_enabled']) : (int) ($existingSettings['sync_orders_enabled'] ?? 1),
+                'sync_products_enabled' => 0,
+                'auto_create_customer' => 0,
+                'auto_create_invoice' => 0,
+                'dry_run_enabled' => array_key_exists('dry_run_enabled', $data) ? (int) !empty($data['dry_run_enabled']) : (int) ($existingSettings['dry_run_enabled'] ?? 1),
+                'last_webhook_at' => $existingSettings['last_webhook_at'] ?? '',
+                'last_connected_at' => $hasAccessToken ? ($existingSettings['last_connected_at'] ?? kt_integration_hub_now()) : ($existingSettings['last_connected_at'] ?? ''),
+                'oauth_status' => $hasAccessToken ? 'token_stored' : 'not_connected',
+                'api_status' => 'mock_ready_real_endpoint_pending_verification',
+                'connector_scope' => 'tiktok_shop_v1_order_staging',
+            ]);
+        }
+
         return kt_integration_hub_redact_secrets([
             'lead_assigned' => (int) ($data['lead_assigned'] ?? ($existingSettings['lead_assigned'] ?? 0)),
             'lead_status' => (int) ($data['lead_status'] ?? ($existingSettings['lead_status'] ?? 0)),
@@ -868,6 +1192,18 @@ class Kt_integration_model extends App_Model
         $settings = kt_integration_hub_json_decode((string) ($connection['settings_json'] ?? ''), []);
 
         return $settings[$key] ?? $default;
+    }
+
+    private function external_account_id_payload($providerCode, array $data, array $existing)
+    {
+        if ($providerCode === 'zalo_oa') {
+            return trim((string) ($data['oa_id'] ?? ($existing['external_account_id'] ?? '')));
+        }
+        if ($providerCode === 'tiktok_shop') {
+            return trim((string) ($data['shop_id'] ?? $data['shop_cipher'] ?? ($existing['external_account_id'] ?? '')));
+        }
+
+        return trim((string) ($data['external_account_id'] ?? ($existing['external_account_id'] ?? '')));
     }
 
     private function default_lead_status_id()
@@ -1039,4 +1375,15 @@ class Kt_integration_model extends App_Model
 
         return $landlordDb ?: $this->db;
     }
+
+    private function tiktok_client()
+    {
+        if (!class_exists('TikTokShopApiClient', false)) {
+            require_once module_dir_path(KT_INTEGRATION_HUB_MODULE, 'libraries/TikTokShopApiClient.php');
+        }
+
+        return new TikTokShopApiClient();
+    }
 }
+
+

@@ -5,13 +5,13 @@ defined('BASEPATH') or exit('No direct script access allowed');
 /*
 Module Name: KT Integration Hub
 Description: Omnichannel connection foundation for tenant lead/event intake, webhook verification, sync queue, and CRM writing.
-Version: 0.1.0
+Version: 0.2.0
 Requires at least: 3.0.*
 Author: Internal Engineering
 */
 
 define('KT_INTEGRATION_HUB_MODULE', 'kt_integration_hub');
-define('KT_INTEGRATION_HUB_VERSION', '0.1.0');
+define('KT_INTEGRATION_HUB_VERSION', '0.2.0');
 
 hooks()->add_action('admin_init', 'kt_integration_hub_module_init');
 hooks()->add_action('after_cron_run', 'kt_integration_hub_after_cron_run');
@@ -25,12 +25,23 @@ function kt_integration_hub_module_init()
     $CI = &get_instance();
     $CI->load->helper(KT_INTEGRATION_HUB_MODULE . '/kt_integration_hub');
 
+    kt_integration_hub_maybe_upgrade_schema();
     kt_integration_hub_register_staff_capabilities();
     kt_integration_hub_register_menu_items();
 }
 
 function kt_integration_hub_activation_hook()
 {
+    require_once __DIR__ . '/install.php';
+}
+
+function kt_integration_hub_maybe_upgrade_schema()
+{
+    $schemaVersion = get_option('kt_integration_hub_schema_version');
+    if ((string) $schemaVersion === (string) KT_INTEGRATION_HUB_VERSION) {
+        return;
+    }
+
     require_once __DIR__ . '/install.php';
 }
 
@@ -84,6 +95,7 @@ function kt_integration_hub_register_menu_items()
         $items = [
             ['slug' => 'kt_integration_hub_dashboard', 'name' => _l('kt_integration_hub_dashboard'), 'href' => admin_url('kt_integration_hub')],
             ['slug' => 'kt_integration_hub_connections', 'name' => _l('kt_integration_hub_connections'), 'href' => admin_url('kt_integration_hub/connections'), 'cap' => 'kt_integration_hub_connect'],
+            ['slug' => 'kt_integration_hub_channel_orders', 'name' => _l('kt_integration_hub_channel_orders'), 'href' => admin_url('kt_integration_hub/channel_orders'), 'cap' => 'kt_integration_hub_view'],
             ['slug' => 'kt_integration_hub_jobs', 'name' => _l('kt_integration_hub_jobs'), 'href' => admin_url('kt_integration_hub/jobs'), 'cap' => 'kt_integration_hub_retry_jobs'],
             ['slug' => 'kt_integration_hub_logs', 'name' => _l('kt_integration_hub_logs'), 'href' => admin_url('kt_integration_hub/logs'), 'cap' => 'kt_integration_hub_logs'],
         ];
@@ -100,6 +112,7 @@ function kt_integration_hub_register_menu_items()
             ['slug' => 'kt_integration_hub_dashboard', 'name' => _l('kt_integration_hub_dashboard'), 'href' => admin_url('kt_integration_hub')],
             ['slug' => 'kt_integration_hub_providers', 'name' => _l('kt_integration_hub_providers'), 'href' => admin_url('kt_integration_hub/providers'), 'cap' => 'kt_integration_hub_manage'],
             ['slug' => 'kt_integration_hub_connections', 'name' => _l('kt_integration_hub_connections'), 'href' => admin_url('kt_integration_hub/connections'), 'cap' => 'kt_integration_hub_view'],
+            ['slug' => 'kt_integration_hub_channel_orders', 'name' => _l('kt_integration_hub_channel_orders'), 'href' => admin_url('kt_integration_hub/channel_orders'), 'cap' => 'kt_integration_hub_view'],
             ['slug' => 'kt_integration_hub_jobs', 'name' => _l('kt_integration_hub_jobs'), 'href' => admin_url('kt_integration_hub/jobs'), 'cap' => 'kt_integration_hub_retry_jobs'],
             ['slug' => 'kt_integration_hub_logs', 'name' => _l('kt_integration_hub_logs'), 'href' => admin_url('kt_integration_hub/logs'), 'cap' => 'kt_integration_hub_logs'],
         ];
@@ -115,4 +128,3 @@ function kt_integration_hub_register_menu_items()
         $CI->app_menu->add_sidebar_children_item('kt_integration_hub', $item);
     }
 }
-
