@@ -9,16 +9,21 @@ const bash = process.env.BASH_EXE || (process.platform==='win32'?'D:/laragon/bin
 try {
  fs.mkdirSync(path.join(fixture,'scripts'));
  for(const name of ['setup-live.sh','deploy-preflight.php'])fs.copyFileSync(path.join(source,'scripts',name),path.join(fixture,'scripts',name));
- const run=()=>spawnSync(bash,['scripts/setup-live.sh'],{cwd:fixture,encoding:'utf8',timeout:30000});
+ const run=(...args)=>spawnSync(bash,['scripts/setup-live.sh',...args],{cwd:fixture,encoding:'utf8',timeout:30000});
  const missing=run();assert.notEqual(missing.status,0);assert.equal(fs.existsSync(path.join(fixture,'uploads')),false);
  console.log('PASS missing dependencies fail before runtime/config writes');
  for(const name of ['application/vendor/autoload.php','modules/backup/vendor/autoload.php','modules/einvoice/vendor/autoload.php','modules/openai/vendor/autoload.php','modules/surveys/vendor/autoload.php','index.php','application/config/database.php','application/config/config.php','application/config/app-config.sample.php']) {
    fs.mkdirSync(path.dirname(path.join(fixture,name)),{recursive:true});fs.writeFileSync(path.join(fixture,name),'<?php // test fixture\n');
  }
+ const fresh=run('--fresh-install');assert.equal(fresh.status,0,fresh.stderr);
+ assert.equal(fs.existsSync(path.join(fixture,'application/config/app-config.php')),false,'fresh install must not trip installer already-finished guard');
+ console.log('PASS fresh setup leaves installer configuration absent');
  const first=run();assert.equal(first.status,0,first.stderr);
  const config=path.join(fixture,'application/config/app-config.php');
  fs.writeFileSync(config,'<?php // existing config must survive\n');
  const before=fs.readFileSync(config,'utf8');const second=run();assert.equal(second.status,0,second.stderr);
+ assert.equal(fs.readFileSync(config,'utf8'),before);
+ assert.notEqual(run('--fresh-install').status,0,'fresh mode must reject configured deployment');
  assert.equal(fs.readFileSync(config,'utf8'),before);
  console.log('PASS setup rerun preserves existing configuration; no CRM DB used');
 } finally {

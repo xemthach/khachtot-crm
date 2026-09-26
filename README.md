@@ -31,6 +31,7 @@ giữ nguyên framework/vendor, cần bản tương thích được phép trư�
 - [Clone → staging → live](docs/DEPLOYMENT_RELEASE.md)
 - [Changelog](CHANGELOG.md)
 - [Audit](docs/reports/CRM_RELEASE_AUDIT_20260927.md)
+- [Clean-clone follow-up và blocker hiện tại](docs/reports/CRM_RELEASE_FOLLOWUP_20260927.md)
 - [Inventory/evidence](docs/reports/CRM_RELEASE_AUDIT_20260927_EVIDENCE.json)
 
 ```sh

@@ -2,6 +2,17 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+FRESH=0
+case "${1:-}" in
+  '') ;;
+  --fresh-install) FRESH=1 ;;
+  *) echo 'Usage: bash scripts/setup-live.sh [--fresh-install]' >&2; exit 2 ;;
+esac
+if [ "$#" -gt 1 ]; then echo 'Unexpected arguments.' >&2; exit 2; fi
+if [ "$FRESH" -eq 1 ] && [ -e "$ROOT/application/config/app-config.php" ]; then
+  echo 'Fresh installation refused: configuration already exists. Use the upgrade/restore procedure.' >&2
+  exit 2
+fi
 
 echo "== Khach Tot CRM live setup =="
 echo "Root: $ROOT"
@@ -29,7 +40,7 @@ touch "$ROOT/application/logs/index.html"
 touch "$ROOT/modules/kt_saas/storage/index.html"
 touch "$ROOT/modules/kt_saas/tenant_bootstrap/index.html"
 
-if [ ! -f "$ROOT/application/config/app-config.php" ] && [ -f "$ROOT/application/config/app-config.sample.php" ]; then
+if [ "$FRESH" -eq 0 ] && [ ! -f "$ROOT/application/config/app-config.php" ] && [ -f "$ROOT/application/config/app-config.sample.php" ]; then
   cp "$ROOT/application/config/app-config.sample.php" "$ROOT/application/config/app-config.php"
   echo "Created application/config/app-config.php"
 fi
@@ -86,7 +97,11 @@ php -m | egrep -i "mysqli|mbstring|curl|openssl|zip|gd|intl|fileinfo|xml|dom|sim
 
 echo "Done."
 echo "Next steps:"
-echo "1. Edit application/config/app-config.php"
+if [ "$FRESH" -eq 1 ]; then
+  echo '1. Configuration intentionally absent; obtain the verified installer schema before running the private installer.'
+else
+  echo '1. Restore/review application/config/app-config.php; this does not certify a fresh installation.'
+fi
 echo "2. Verify application/config/database.php and config.php"
-echo "3. Import landlord database"
+echo "3. Follow the separate fresh-install or backed-up upgrade procedure; do not import an unverified dump"
 echo "4. Configure web server and Cloudflare"
