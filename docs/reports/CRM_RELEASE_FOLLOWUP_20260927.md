@@ -142,6 +142,17 @@ Clone temp/dependency files giữ để tái hiện; không có CRM DB/seed/acco
 HTTP listener harness đã stop. Network có GitHub/docs và package registry download,
 không gọi business provider/MISA. Linux deployment **NOT VERIFIED**.
 
+### Post-push clean-checkout xác minh bản sửa
+
+Clone riêng đã fetch remote và checkout detached
+`e37a8ad7de82617e3d8624d7affceec34ba13088` (commit bản sửa, trước bổ sung đoạn evidence
+này). Chạy **script thật trong clone**, không chỉ fixture:
+`bash scripts/setup-live.sh --fresh-install` → exit0; `app-config.php` vẫn không tồn
+tại; `git status --short` vẫn rỗng (runtime/vendor ignored). HTTP probe tiếp tục
+trả200 root uninstalled và installer có form, không fatal. Setup regression tại
+clone mới pass. Đây là filesystem/front-controller pre-install evidence; schema,
+DB import và upgrade vẫn BLOCKED. Không chạy setup mặc định để tạo config giả.
+
 Blockers theo thứ tự: (1) schema provenance + authorized isolated DB metadata;
 (2) owner quyết định bộ tenant/source/build changes cần nhận; (3) vendor compatibility;
 (4) clean build closure; (5) install/upgrade + HTTP/browser isolation/CSRF + cron;
