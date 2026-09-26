@@ -411,3 +411,5 @@ Cloudflare rollback:
 - set records to DNS only if proxy causes issues
 - revert DNS records
 - disable cache rules that affect dynamic routes
+> Hướng dẫn live hiện hành: [DEPLOYMENT_RELEASE.md](DEPLOYMENT_RELEASE.md).
+> Nội dung dưới đây là lịch sử; không dùng để vượt release gate 2026-09-27.

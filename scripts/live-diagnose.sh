@@ -54,7 +54,7 @@ echo "-- Config files --"
 
 echo "-- App logs --"
 ls -lh "$ROOT/application/logs" || true
-tail -n 80 "$ROOT"/application/logs/*.php 2>/dev/null || true
+echo 'Log contents are intentionally omitted. Review privately and redact before sharing.'
 
 echo "-- Lint index.php --"
 php -l "$ROOT/index.php" || true
