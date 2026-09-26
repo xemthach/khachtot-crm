@@ -6,6 +6,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "== Khach Tot CRM live setup =="
 echo "Root: $ROOT"
 
+# Fail before creating configuration or changing permissions.
+php "$ROOT/scripts/deploy-preflight.php"
+umask 027
+
 echo "Creating runtime folders..."
 mkdir -p "$ROOT/uploads"
 mkdir -p "$ROOT/media"
@@ -63,19 +67,16 @@ for dir in "${required_vendors[@]}"; do
 done
 
 echo "Setting permissions..."
-chmod -R 775 "$ROOT/uploads" || true
-chmod -R 775 "$ROOT/media" || true
-chmod -R 775 "$ROOT/temp" || true
-chmod -R 775 "$ROOT/application/cache" || true
-chmod -R 775 "$ROOT/application/logs" || true
-chmod -R 775 "$ROOT/modules/kt_saas/storage" || true
-chmod -R 775 "$ROOT/modules/kt_saas/tenant_bootstrap" || true
-
-chmod -R 755 "$ROOT/application/vendor" || true
-chmod -R 755 "$ROOT/modules/backup/vendor" || true
-chmod -R 755 "$ROOT/modules/einvoice/vendor" || true
-chmod -R 755 "$ROOT/modules/openai/vendor" || true
-chmod -R 755 "$ROOT/modules/surveys/vendor" || true
+for dir in uploads media temp application/cache application/logs modules/kt_saas/storage \
+  modules/kt_saas/tenant_bootstrap/manifests modules/kt_saas/tenant_bootstrap/runtime modules/kt_saas/tenant_bootstrap/cache; do
+  find "$ROOT/$dir" -type d -exec chmod 750 {} +
+  find "$ROOT/$dir" -type f -exec chmod 640 {} +
+done
+# Configure ownership explicitly for PHP-FPM before invoking this script.
+# Source, tenant bootstrap PHP and vendor trees must remain non-writable by the web user.
+if [ -f "$ROOT/application/config/app-config.php" ]; then
+  chmod 640 "$ROOT/application/config/app-config.php"
+fi
 
 echo "PHP version:"
 php -v | head -n 1 || true

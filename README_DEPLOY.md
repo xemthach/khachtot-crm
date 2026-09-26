@@ -34,3 +34,5 @@ Important:
 - This project requires bundled vendor folders because there is no root `composer.json`.
 - Required runtime dependencies live in `application/vendor` and some `modules/*/vendor` directories.
 - If bundled vendor folders are missing, live can return HTTP 500.
+> Hướng dẫn hiện hành: [clone → staging → live](docs/DEPLOYMENT_RELEASE.md).
+> Nội dung bên dưới là lịch sử; không dùng tag cũ hoặc seed chưa xác minh để deploy.

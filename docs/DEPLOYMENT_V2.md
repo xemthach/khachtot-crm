@@ -1,5 +1,9 @@
 # Khach Tot CRM Deployment Guide V2
 
+> HISTORICAL GUIDE — không chạy trực tiếp lệnh dưới đây cho release mới.
+> Xem [hướng dẫn hiện hành](DEPLOYMENT_RELEASE.md) và release gate trong audit
+> 2026-09-27. Tag/path/database seed bên dưới là thông tin cũ, chưa certify live.
+
 ## 1. Dependency policy
 
 This project does not include `composer.json` at the repository root.
