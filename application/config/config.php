@@ -496,7 +496,7 @@ if (isset($app_csrf_exclude_uris)) {
 
 if ($config['csrf_protection'] == true
     && isset($_SERVER['REQUEST_URI'])
-    && strpos($_SERVER['REQUEST_URI'], 'gateways/') !== false) {
+    && preg_match('#^/(?:index\.php/)?gateways/#', (string) parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH))) {
     $config['csrf_protection'] = false;
 }
 

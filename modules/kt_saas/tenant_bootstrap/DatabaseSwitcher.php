@@ -57,7 +57,9 @@ class DatabaseSwitcher
 
         try {
             $tenantDb = $CI->load->database($config, true);
-            $tenantDb->initialize();
+            if (!$tenantDb || !$tenantDb->initialize() || empty($tenantDb->conn_id)) {
+                return ['switched' => false, 'message' => 'Tenant database connection unavailable.'];
+            }
             $CI->db = $tenantDb;
             $CI->config->set_item('kt_saas_landlord_db', $current);
 

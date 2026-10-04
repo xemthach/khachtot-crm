@@ -1,5 +1,17 @@
 # Changelog
 
+### Limited-live scope — 2026-10-04 (0.10.4-rc.1, chưa phát hành)
+
+- Giới hạn phạm vi CRM/SaaS; khóa route/module bootstrap/model Integration Hub và
+  các URL MISA/DMS mặc định, giữ dữ liệu/credentials, không bật provider transport.
+- Tenant unknown host/failed connection fail closed trong limited profile;
+  provisioning không fallback credentials landlord trong profile này.
+- Sửa gateway CSRF exception để query string không tắt CSRF của route CRM.
+- Vá ba cú pháp property Profiler theo upstream MIT; khai báo section flags cho PHP8.2+.
+- Thêm tests policy HTTP loopback, class Profiler và negative tenant/config seams.
+- Runbook DNS/TLS/vhost, installer private, hai đường DB và provisioning thực tế.
+  Chưa chứng nhận installed CRM, Linux hoặc production. Không cutover.
+
 ### Candidate follow-up — 2026-10-04 (vẫn 0.10.4-rc.1, chưa phát hành)
 
 - Pin webpack5.105.0 cho private SizeFormatHelpers API của Mix6.0.49; regenerate

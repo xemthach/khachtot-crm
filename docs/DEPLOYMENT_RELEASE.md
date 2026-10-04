@@ -1,5 +1,10 @@
 # Khách Tốt CRM: clone → staging → live
 
+**Phạm vi mới:** dùng [LIMITED_LIVE_DEPLOYMENT.md](LIMITED_LIVE_DEPLOYMENT.md)
+cho CRM cơ bản + SaaS/subdomain, khóa MISA/DMS/Hub. Guide dưới là baseline chung,
+không dùng fragment Nginx ở đây làm cấu hình installer. Runbook mới có vhost public
+deny installer và listener loopback riêng cho cài mới, cùng đường restore hệ thống cũ.
+
 Candidate **0.10.4-rc.1 — release gate BLOCKED**. Guide này thay các chỉ dẫn live
 cũ. Chưa được phép coi clone thành công là chứng nhận production.
 

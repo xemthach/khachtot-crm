@@ -6,6 +6,12 @@ chứa phía CRM của kết nối DMS.
 
 ## Trạng thái
 
+Phạm vi candidate hiện tại: **LIMITED LIVE — CRM cơ bản + SaaS/subdomain**;
+MISA/DMS và Integration Hub bị khóa mặc định ở backend. Chưa đạt gate live.
+Hướng dẫn áp dụng: [Limited live: clone → staging → cutover](docs/LIMITED_LIVE_DEPLOYMENT.md).
+Không cần chờ chứng nhận tích hợp đã khóa, nhưng login/CSRF/tenant/data phải đạt
+runtime gates. Không coi các test policy loopback là chứng nhận CRM đã cài đặt.
+
 Candidate **0.10.4-rc.1** (nguồn: `VERSION`) chưa đạt release gate, chưa có tag mới.
 Core schema `341` (Perfex 3.4.1), version module và package frontend độc lập với
 version sản phẩm. Không thay số schema/vendor để đánh dấu release CRM.
@@ -14,8 +20,8 @@ Audit 2026-09-27 kiểm chứng script triển khai bằng test loopback và fil
 Chưa chứng nhận production, provider thật hoặc toàn bộ nghiệp vụ. Worktree local
 có MISA và thành phần tenant chưa được track; clone GitHub không tự chứa các thay
 đổi này. Xem inventory và giới hạn trong báo cáo audit.
-Lint phát hiện `system/libraries/Profiler.php:108` không tương thích PHP 8.3;
-giữ nguyên framework/vendor, cần bản tương thích được phép trước release.
+Profiler đã được vá tương thích PHP 8.3 theo nguồn MIT và test class thật;
+không thay framework version/licence. Runtime CRM bật Profiler vẫn chưa được chứng nhận.
 
 ## Yêu cầu từ source
 
