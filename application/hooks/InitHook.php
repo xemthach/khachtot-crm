@@ -50,6 +50,10 @@ function _app_init()
     }
 
     foreach ($modules as $module) {
+        require_once APPPATH . 'libraries/KtReleasePolicy.php';
+        if (KtReleasePolicy::moduleBlocked($module['system_name'] ?? basename(dirname($module['init_file'])))) {
+            continue;
+        }
         /**
          * Require the init module file
          */

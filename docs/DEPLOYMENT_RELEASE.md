@@ -1,5 +1,10 @@
 # Khách Tốt CRM: clone → staging → live
 
+**Phạm vi mới:** dùng [LIMITED_LIVE_DEPLOYMENT.md](LIMITED_LIVE_DEPLOYMENT.md)
+cho CRM cơ bản + SaaS/subdomain, khóa MISA/DMS/Hub. Guide dưới là baseline chung,
+không dùng fragment Nginx ở đây làm cấu hình installer. Runbook mới có vhost public
+deny installer và listener loopback riêng cho cài mới, cùng đường restore hệ thống cũ.
+
 Candidate **0.10.4-rc.1 — release gate BLOCKED**. Guide này thay các chỉ dẫn live
 cũ. Chưa được phép coi clone thành công là chứng nhận production.
 
@@ -44,6 +49,7 @@ git fetch origin --tags
 git checkout --detach '<RELEASE_REF>'
 test "$(git rev-parse HEAD)" = '<EXPECTED_COMMIT>'
 git status --short
+# Initial check may fail for backup vendor; follow section 3 then repeat.
 php scripts/deploy-preflight.php
 ```
 
@@ -52,8 +58,18 @@ bản sửa/tài liệu đã review; không chứa mọi source local chưa comm
 
 ## 3. Dependency/build
 
-Vendor bundle: `application/vendor`, `modules/{backup,einvoice,openai,surveys}/vendor`.
-Không chạy composer root/update khi deploy. Preflight kiểm tra autoload; thêm:
+Clean clone RC đã xác minh thiếu `modules/backup/vendor` (module `.gitignore`
+loại vendor), dù máy phát triển có. Các vendor application/einvoice/openai/surveys
+được bundle. Cài đúng backup lockfile trước setup; không composer update/root:
+
+```sh
+# cwd: root release; đã chạy thành công trong clean clone Windows
+composer --working-dir=modules/backup install --no-dev --no-scripts --no-plugins --no-interaction --prefer-dist
+composer --working-dir=modules/backup check-platform-reqs --no-dev
+php scripts/deploy-preflight.php
+```
+
+Preflight chỉ kiểm prerequisites, không chứng nhận schema/boot. Thêm:
 
 ```sh
 # cwd: root release; chỉ đọc platform requirements
@@ -64,18 +80,26 @@ PHP core >=8.1; extensions từ installer/composer: mysqli, PDO, curl, openssl,
 mbstring, iconv, imap, gd, zip, bcmath, ctype, filter, hash, XML/DOM/XMLWriter,
 fileinfo, JSON; `allow_url_fopen` bật. So sánh CLI/FPM php.ini và extension list.
 
-Asset đã bundle trong Git. Khi cần rebuild, dùng checkout BUILD riêng và Node/npm
-pin theo staging, không ghi đè bundle đang live:
+Asset đã bundle trong Git nhưng PR sửa build không tự thay bundled artifacts. Với
+candidate này, rebuild trong checkout BUILD riêng, review output rồi đóng gói;
+không lấy assets dirty máy phát triển hoặc ghi đè bundle đang live. Môi trường
+đã kiểm tra: Windows/Git Bash, Node24.14.0, npm11.13.0, Mix6.0.49, webpack5.105.0:
 
 ```sh
 # cwd: root checkout BUILD
-npm ci
+npm ci --ignore-scripts --no-audit --no-fund
 npm run build
-git diff --stat -- assets mix-manifest.json
+node tests/release/asset-contract.test.cjs --built
+git diff --stat -- assets modules/einvoice/assets mix-manifest.json
 ```
 
-Đây là lệnh từ package/lock thật; build Linux chưa được chứng nhận. Review bundle,
-browser/MIME rồi đóng gói artifact. Không dùng npm update.
+Baseline741a660 từng FAIL do webpack5.107.2 bỏ private API mà Mix dùng, và lời gọi
+`build.mjs` không tồn tại. Nhánh build closure pin5.105.0 trong package/lock và bỏ
+lời gọi mồ côi; clean ci/build/output contract PASS trên môi trường nêu trên.
+Không coi pin này là dependency security certification: npm audit vẫn có advisories,
+cần reachability review riêng. `--ignore-scripts` tránh lifecycle script chưa review;
+không tự cho phép scripts. Linux và browser CRM cài đặt vẫn NOT VERIFIED.
+Review MIME/browser trước đóng gói artifact; không npm update khi deploy.
 
 ## 4. Permission và config
 
@@ -90,12 +114,28 @@ runtime_dirs=(uploads media temp application/cache application/logs \
   modules/kt_saas/tenant_bootstrap/runtime modules/kt_saas/tenant_bootstrap/cache)
 mkdir -p "${runtime_dirs[@]}"
 sudo chown -R www-data:www-data "${runtime_dirs[@]}"
-sudo bash scripts/setup-live.sh
+# Choose ONE, not both:
+# Fresh private installer (only after verified schema is supplied):
+sudo bash scripts/setup-live.sh --fresh-install
+# Existing deployment/manual restore instead: sudo bash scripts/setup-live.sh
+```
+
+Fresh mode không tạo app-config.php: `installed/index.php:6` coi file này là dấu
+hiệu đã cài xong. Fresh mode từ chối config có sẵn, không xóa/ghi đè config. Chưa
+được chạy installer nếu schema không có provenance hợp lệ. Installer tạo config
+theo `app-config-sample.php`, khác template dot dùng cho manual setup; kiểm tra
+APP_CSRF_PROTECTION=true trước mở traffic, không coi hai template tương đương.
+
+Sau installer thành công (hoặc sau restore config của hệ thống cũ), chạy riêng:
+
+```sh
+# cwd: root release; STOP if config has not yet been created/restored
+test -f application/config/app-config.php || exit 1
 sudo chown '<DEPLOY_USER>':www-data application/config/app-config.php
 sudo chmod 640 application/config/app-config.php
 ```
 
-Setup tạo folder/config khi thiếu, không migrate. Khi upgrade phải mount/copy
+Setup mặc định tạo folder/config khi thiếu, không migrate. Khi upgrade phải mount/copy
 runtime snapshot an toàn; không dùng folder trống thay file live. Script đã test
 idempotency filesystem, chưa test owner/ACL Linux.
 

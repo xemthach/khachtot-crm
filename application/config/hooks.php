@@ -48,6 +48,15 @@ function hooks()
 }
 
 $hook['pre_system'][] = [
+    'class' => 'KtLimitedRelease', 'function' => 'early',
+    'filename' => 'KtLimitedRelease.php', 'filepath' => 'hooks',
+];
+$hook['pre_controller_constructor'][] = [
+    'class' => 'KtLimitedRelease', 'function' => 'resolved',
+    'filename' => 'KtLimitedRelease.php', 'filepath' => 'hooks',
+];
+
+$hook['pre_system'][] = [
     'class'    => 'EnhanceSecurity',
     'function' => 'protect',
     'filename' => 'EnhanceSecurity.php',

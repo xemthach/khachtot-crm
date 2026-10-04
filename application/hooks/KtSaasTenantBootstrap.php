@@ -15,6 +15,7 @@ class KtSaasTenantBootstrap
 
     public function handle()
     {
+        require_once APPPATH . 'libraries/KtReleasePolicy.php';
         $this->trace('handle:start host=' . $this->currentHost() . ' uri=' . uri_string());
         if (!empty($GLOBALS['kt_saas_bootstrap_completed'])) {
             $this->trace('handle:already_completed');
@@ -28,6 +29,9 @@ class KtSaasTenantBootstrap
 
         $moduleRoot = APP_MODULES_PATH . 'kt_saas' . DIRECTORY_SEPARATOR;
         if (!is_dir($moduleRoot)) {
+            if (KtReleasePolicy::limited() && $this->currentHost() !== strtolower((string) parse_url(APP_BASE_URL, PHP_URL_HOST))) {
+                KtReleasePolicy::denyTenant();
+            }
             $this->trace('handle:module_missing');
             return;
         }
@@ -46,6 +50,9 @@ class KtSaasTenantBootstrap
             : '0';
 
         if ($runtimeEnabled !== '1') {
+            if (KtReleasePolicy::limited() && $this->currentHost() !== strtolower((string) parse_url(APP_BASE_URL, PHP_URL_HOST))) {
+                KtReleasePolicy::denyTenant();
+            }
             $this->trace('handle:runtime_disabled value=' . $runtimeEnabled);
             return;
         }
@@ -58,6 +65,9 @@ class KtSaasTenantBootstrap
         $resolver = new TenantResolver();
         $tenant = $resolver->resolveByHost($this->currentHost());
         if (!$tenant || empty($tenant['resolved'])) {
+            if (KtReleasePolicy::limited() && $this->currentHost() !== strtolower((string) parse_url(APP_BASE_URL, PHP_URL_HOST))) {
+                KtReleasePolicy::denyTenant();
+            }
             $this->trace('handle:tenant_not_resolved');
             return;
         }
@@ -79,6 +89,9 @@ class KtSaasTenantBootstrap
         $switcher = new DatabaseSwitcher();
         $switchResult = $switcher->switchConnection($tenant);
         if (empty($switchResult['switched'])) {
+            if (KtReleasePolicy::limited()) {
+                KtReleasePolicy::denyTenant();
+            }
             $this->trace('handle:switch_failed message=' . (string) ($switchResult['message'] ?? 'unknown'));
             log_message('error', 'KT SaaS database switch failed for tenant [' . ($tenant['tenant_code'] ?? 'unknown') . ']: ' . ($switchResult['message'] ?? 'unknown error'));
             return;

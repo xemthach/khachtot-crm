@@ -2,6 +2,11 @@
 
 defined('BASEPATH') or exit('No direct script access allowed');
 
+require_once APPPATH . 'libraries/KtReleasePolicy.php';
+if (KtReleasePolicy::moduleBlocked('kt_integration_hub')) {
+    return;
+}
+
 /*
 Module Name: KT Integration Hub
 Description: Omnichannel connection foundation for tenant lead/event intake, webhook verification, sync queue, and CRM writing.

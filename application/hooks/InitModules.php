@@ -9,6 +9,7 @@ class InitModules
      */
     public function handle()
     {
+        require_once APPPATH . 'libraries/KtReleasePolicy.php';
         include_once(LIBSPATH.'App_modules.php');
         // Load the directory helper so the directory_map function can be used
         include_once(BASEPATH . 'helpers/directory_helper.php');
@@ -16,6 +17,9 @@ class InitModules
         $activeModules = $this->getActiveModuleNames();
 
         foreach (\App_modules::get_valid_modules() as $module) {
+            if (KtReleasePolicy::moduleBlocked($module['name'] ?? '')) {
+                continue;
+            }
             if (empty($module['name']) || !in_array($module['name'], $activeModules, true)) {
                 continue;
             }

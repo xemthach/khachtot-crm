@@ -54,6 +54,12 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  */
 class CI_Profiler {
 
+	// Local compatibility patch: upstream 3.1.13 property syntax, MIT notice retained.
+	// Declare section flags explicitly for PHP 8.2+ (no dynamic property deprecation).
+	public $_compile_benchmarks, $_compile_get, $_compile_memory_usage, $_compile_post;
+	public $_compile_uri_string, $_compile_controller_info, $_compile_queries;
+	public $_compile_http_headers, $_compile_session_data, $_compile_config;
+
 	/**
 	 * List of profiler sections available to show
 	 *
@@ -105,7 +111,7 @@ class CI_Profiler {
 		{
 			if ( ! isset($config[$section]))
 			{
-				$this->_compile_{$section} = TRUE;
+				$this->{'_compile_'.$section} = TRUE;
 			}
 		}
 
@@ -135,7 +141,7 @@ class CI_Profiler {
 		{
 			if (in_array($method, $this->_available_sections))
 			{
-				$this->_compile_{$method} = ($enable !== FALSE);
+				$this->{'_compile_'.$method} = ($enable !== FALSE);
 			}
 		}
 	}
@@ -554,7 +560,7 @@ class CI_Profiler {
 
 		foreach ($this->_available_sections as $section)
 		{
-			if ($this->_compile_{$section} !== FALSE)
+			if ($this->{'_compile_'.$section} !== FALSE)
 			{
 				$func = '_compile_'.$section;
 				$output .= $this->{$func}();

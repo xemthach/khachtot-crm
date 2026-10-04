@@ -1,0 +1,283 @@
+{
+  "started_at": "2026-09-26T19:29:26.665Z",
+  "clone": "C:\\Users\\Peter\\AppData\\Local\\Temp\\khachtot-rc-review-294136c9e0cb477e8499412834e8eaf2",
+  "checks": [
+    {
+      "id": "UNCONFIGURED_HTTP",
+      "command": [
+        "node",
+        "tests/release/clean-clone-http.cjs",
+        "C:\\Users\\Peter\\AppData\\Local\\Temp\\khachtot-rc-review-294136c9e0cb477e8499412834e8eaf2"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "4c3d10f5fd01128120ebc77191adb0a3344c81548eaf986cd544388b8b471621"
+    },
+    {
+      "id": "RC_SMOKE",
+      "command": [
+        "node",
+        "tests/release/deployment-smoke.test.cjs"
+      ],
+      "scope": "CLEAN_RC",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "9a15a1103e54f6f5f2583a86107d3a368cd5baa05719798a3060c41c0fc35d23"
+    },
+    {
+      "id": "RC_SETUP_BASELINE",
+      "command": [
+        "node",
+        "tests/release/setup-live.test.cjs"
+      ],
+      "scope": "CLEAN_RC",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "8db1ad03a7043bb49c4d35fa5a22be93532fe00836e393c1fb8fad0ab5d210ae"
+    },
+    {
+      "id": "SETUP_FRESH_FIX",
+      "command": [
+        "node",
+        "tests/release/setup-live.test.cjs"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "ef4602c076142ca40bf7ea63fe2829fa8645bec4dc321ea27acb47ad398631c8"
+    },
+    {
+      "id": "RC_PREFLIGHT_AFTER_BACKUP_INSTALL",
+      "command": [
+        "php",
+        "scripts/deploy-preflight.php"
+      ],
+      "scope": "CLEAN_RC",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "6eb86bbdfcd61e6361c39ec9b5ad539bddbb09c7254ad7d632f97480e66f136c"
+    },
+    {
+      "id": "PLATFORM_APPLICATION",
+      "command": [
+        "D:/laragon/bin/git/bin/bash.exe",
+        "-lc",
+        "composer --working-dir=application check-platform-reqs --no-dev"
+      ],
+      "scope": "CLEAN_RC",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "0c959bd4486be3d580278e1eed07e0b482d4f50259b299b8c9370905d3d053e0"
+    },
+    {
+      "id": "PLATFORM_BACKUP",
+      "command": [
+        "D:/laragon/bin/git/bin/bash.exe",
+        "-lc",
+        "composer --working-dir=modules/backup check-platform-reqs --no-dev"
+      ],
+      "scope": "CLEAN_RC",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "7cfaed591b3c8daf63de678ae0ba4c35850cc838b27a5d6b6da658f6373a5b62"
+    },
+    {
+      "id": "RC_ASSET_BUILD",
+      "command": [
+        "D:/laragon/bin/git/bin/bash.exe",
+        "-lc",
+        "npm run build"
+      ],
+      "scope": "CLEAN_RC",
+      "exit": 2,
+      "status": "FAIL",
+      "output_sha256": "173e983c5131daea7ce80853d95d94f91e245d012a171778b81f3733704790cb"
+    },
+    {
+      "id": "SYNTAX_scripts/setup-live.sh",
+      "command": [
+        "D:/laragon/bin/git/bin/bash.exe",
+        "-n",
+        "scripts/setup-live.sh"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "SYNTAX_scripts/live-smoke-check.sh",
+      "command": [
+        "D:/laragon/bin/git/bin/bash.exe",
+        "-n",
+        "scripts/live-smoke-check.sh"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "SYNTAX_scripts/live-diagnose.sh",
+      "command": [
+        "D:/laragon/bin/git/bin/bash.exe",
+        "-n",
+        "scripts/live-diagnose.sh"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "SYNTAX_tools/release-followup.cjs",
+      "command": [
+        "node",
+        "--check",
+        "tools/release-followup.cjs"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "SYNTAX_tools/release-followup-checks.cjs",
+      "command": [
+        "node",
+        "--check",
+        "tools/release-followup-checks.cjs"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "SYNTAX_tests/release/clean-clone-http.cjs",
+      "command": [
+        "node",
+        "--check",
+        "tests/release/clean-clone-http.cjs"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "SYNTAX_tests/release/setup-live.test.cjs",
+      "command": [
+        "node",
+        "--check",
+        "tests/release/setup-live.test.cjs"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "IntegrationErrorSanitizerTest.php",
+      "command": [
+        "php",
+        "modules/kt_integration_hub/tests/IntegrationErrorSanitizerTest.php"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "8e5ae3ee5d12b093abee6a859da80e220cf7a2b2bbffa2130511a984239a7fed"
+    },
+    {
+      "id": "KtSaasContextRestorationTest.php",
+      "command": [
+        "php",
+        "modules/kt_saas/tests/KtSaasContextRestorationTest.php"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "9f5adca67a7a93a282a3894ccd91790eaf37da560a44798ecfc8fb547de7fc4f"
+    },
+    {
+      "id": "DmsSourceOfTruthCopySmokeTest.php",
+      "command": [
+        "php",
+        "modules/kt_saas/tests/DmsSourceOfTruthCopySmokeTest.php"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "8b6deefe7933bdf1fac50e35dd5b2a83e6c60302eef209345c0bfa2a7d7d399c"
+    },
+    {
+      "id": "DmsRoutePermissionGovernanceTest.php",
+      "command": [
+        "php",
+        "modules/kt_integration_hub/tests/DmsRoutePermissionGovernanceTest.php"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "edb9d4fd631cf7cae116776a8994ec96942eac77906c0710302318f983a31d9b"
+    },
+    {
+      "id": "DmsRenderedSecurityNoSecretsTest.php",
+      "command": [
+        "php",
+        "modules/kt_integration_hub/tests/DmsRenderedSecurityNoSecretsTest.php"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "0e0ae5191b41377f81e26584fd73d102ff6f9c9b7fe555cfa8f5d1ec33df00ea"
+    },
+    {
+      "id": "MisaFoundationContractTest.php",
+      "command": [
+        "php",
+        "modules/kt_misa_amis_accounting/tests/MisaFoundationContractTest.php"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "0444f40b1647a2c2114b058f4e02c7088fd344682aa3f2c0ec7b07d144aba490"
+    },
+    {
+      "id": "MisaStateMachineTest.php",
+      "command": [
+        "php",
+        "modules/kt_misa_amis_accounting/tests/MisaStateMachineTest.php"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "ec0b8d4195fa29943dc90da1940c99498376d9a550f5c04bdd0616d0f2561486"
+    },
+    {
+      "id": "MisaSecurityStaticTest.php",
+      "command": [
+        "php",
+        "modules/kt_misa_amis_accounting/tests/MisaSecurityStaticTest.php"
+      ],
+      "scope": "DIRTY_WORKTREE_TEST_ONLY",
+      "exit": 0,
+      "status": "PASS",
+      "output_sha256": "ffcab1f5e5707fb2970749e7276e0483809c1f9d36aad95bebeeae367427cb0e"
+    }
+  ],
+  "finished_at": "2026-09-26T19:29:45.958Z",
+  "summary": {
+    "executed": 23,
+    "passed": 22,
+    "failed": 1
+  },
+  "not_run": [
+    "configured CRM HTTP/CSRF/browser/tenant/company",
+    "DB install/upgrade",
+    "cron provider hooks",
+    "staging DB backup/restore",
+    "Linux/FPM/TLS"
+  ]
+}

@@ -433,6 +433,10 @@ class ProvisioningJobRunner
 
     protected function fallbackToSharedDatabaseCredentials(array $tenant, Throwable $exception)
     {
+        require_once APPPATH . 'libraries/KtReleasePolicy.php';
+        if (KtReleasePolicy::limited()) {
+            return null; // Never persist landlord credentials as tenant fallback.
+        }
         if (!defined('APP_DB_USERNAME') || trim((string) APP_DB_USERNAME) === '') {
             return null;
         }

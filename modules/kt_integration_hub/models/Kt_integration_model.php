@@ -6,6 +6,8 @@ class Kt_integration_model extends App_Model
 {
     public function __construct()
     {
+        require_once APPPATH . 'libraries/KtReleasePolicy.php';
+        KtReleasePolicy::assertHubAllowed();
         parent::__construct();
         $this->load->helper(KT_INTEGRATION_HUB_MODULE . '/kt_integration_hub');
     }
