@@ -32,6 +32,7 @@ giữ nguyên framework/vendor, cần bản tương thích được phép trư�
 - [Changelog](CHANGELOG.md)
 - [Audit](docs/reports/CRM_RELEASE_AUDIT_20260927.md)
 - [Clean-clone follow-up và blocker hiện tại](docs/reports/CRM_RELEASE_FOLLOWUP_20260927.md)
+- [Build closure, CSRF/tenant decisions và gate 04/10](docs/reports/CRM_RC_BUILD_CLOSURE_20261004.md)
 - [Inventory/evidence](docs/reports/CRM_RELEASE_AUDIT_20260927_EVIDENCE.json)
 
 ```sh

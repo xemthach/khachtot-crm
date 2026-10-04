@@ -75,22 +75,26 @@ PHP core >=8.1; extensions từ installer/composer: mysqli, PDO, curl, openssl,
 mbstring, iconv, imap, gd, zip, bcmath, ctype, filter, hash, XML/DOM/XMLWriter,
 fileinfo, JSON; `allow_url_fopen` bật. So sánh CLI/FPM php.ini và extension list.
 
-Asset đã bundle trong Git. Khi cần rebuild, dùng checkout BUILD riêng và Node/npm
-pin theo staging, không ghi đè bundle đang live:
+Asset đã bundle trong Git nhưng PR sửa build không tự thay bundled artifacts. Với
+candidate này, rebuild trong checkout BUILD riêng, review output rồi đóng gói;
+không lấy assets dirty máy phát triển hoặc ghi đè bundle đang live. Môi trường
+đã kiểm tra: Windows/Git Bash, Node24.14.0, npm11.13.0, Mix6.0.49, webpack5.105.0:
 
 ```sh
 # cwd: root checkout BUILD
 npm ci --ignore-scripts --no-audit --no-fund
 npm run build
-git diff --stat -- assets mix-manifest.json
+node tests/release/asset-contract.test.cjs --built
+git diff --stat -- assets modules/einvoice/assets mix-manifest.json
 ```
 
-Clean clone RC: install dependency PASS, build FAIL với Laravel Mix 6.0.49 + webpack
-5.107.2 (`webpack/lib/SizeFormatHelpers` thiếu). RC còn gọi `node build.mjs` nhưng
-file không có trong Git. Dừng release; không lấy package/assets dirty local để
-che lỗi. Lệnh dùng `--ignore-scripts` tránh lifecycle script chưa review, không
-tự chuyển sang cho phép scripts. Linux build chưa được chứng nhận. Review bundle,
-browser/MIME rồi đóng gói artifact. Không dùng npm update.
+Baseline741a660 từng FAIL do webpack5.107.2 bỏ private API mà Mix dùng, và lời gọi
+`build.mjs` không tồn tại. Nhánh build closure pin5.105.0 trong package/lock và bỏ
+lời gọi mồ côi; clean ci/build/output contract PASS trên môi trường nêu trên.
+Không coi pin này là dependency security certification: npm audit vẫn có advisories,
+cần reachability review riêng. `--ignore-scripts` tránh lifecycle script chưa review;
+không tự cho phép scripts. Linux và browser CRM cài đặt vẫn NOT VERIFIED.
+Review MIME/browser trước đóng gói artifact; không npm update khi deploy.
 
 ## 4. Permission và config
 

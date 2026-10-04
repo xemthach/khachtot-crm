@@ -1,5 +1,16 @@
 # Changelog
 
+### Candidate follow-up — 2026-10-04 (vẫn 0.10.4-rc.1, chưa phát hành)
+
+- Pin webpack5.105.0 cho private SizeFormatHelpers API của Mix6.0.49; regenerate
+  lockfile từ tracked RC, không lấy package/lock/assets dirty máy phát triển.
+- Bỏ build.mjs mồ côi khỏi build command; giữ hai pipeline Mix đang track.
+- Thêm regression cho build entrypoints, locked API và actual generated outputs.
+- Build Windows đã kiểm chứng; không commit generated bundles, không chứng nhận
+  dependency security, installed CRM runtime hoặc production.
+- Ghi riêng CSRF static route candidates, tenant ownership decisions, vendor tooling
+  provenance và hai lint failures vẫn mở. Không đổi schema/framework/vendor.
+
 ## 0.10.4-rc.1 — 2026-09-27 (chưa phát hành)
 
 - Thêm `VERSION` cho candidate sản phẩm, độc lập schema Perfex/version module.
