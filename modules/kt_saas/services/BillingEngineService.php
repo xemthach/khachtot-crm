@@ -417,7 +417,7 @@ class BillingEngineService
                     'gateway'    => trim((string) ($paymentData['gateway'] ?? ($existingPayment['gateway'] ?? 'manual'))),
                     'updated_at' => $now,
                 ]);
-                $this->reactivateSubscriptionAfterPayment($invoice, $now);
+                $this->handlePostPaymentSuccess($invoice, $paymentData, $now);
             }
 
             $emailGuard = $this->reserveEmailEventGuard('payment_success', [
@@ -438,6 +438,7 @@ class BillingEngineService
         }
 
         if (($invoice['status'] ?? '') === 'paid') {
+            $this->handlePostPaymentSuccess($invoice, $paymentData, $now);
             $emailGuard = $this->reserveEmailEventGuard('payment_success', [
                 'tenant_id' => (int) $invoice['tenant_id'],
                 'resource_type' => 'invoice',
@@ -471,7 +472,7 @@ class BillingEngineService
             'updated_at'       => $now,
         ]);
 
-        $this->reactivateSubscriptionAfterPayment($invoice, $now);
+        $this->handlePostPaymentSuccess($invoice, $paymentData, $now);
         $emailGuard = $this->reserveEmailEventGuard('payment_success', [
             'tenant_id' => (int) $invoice['tenant_id'],
             'resource_type' => 'invoice',
@@ -490,6 +491,35 @@ class BillingEngineService
         ], (int) $invoice['tenant_id']);
 
         return $this->dispatchPaymentSuccessEmail($invoice, $paymentData, ['success' => true, 'invoice_id' => (int) $invoice['id'], 'payment_id' => $paymentId, 'already_paid' => false, 'email_event_guard' => $emailGuard]);
+    }
+
+    protected function handlePostPaymentSuccess(array $invoice, array $paymentData, $now)
+    {
+        $payload = json_decode((string) ($invoice['payload_json'] ?? ''), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+
+        $reason = (string) ($payload['reason'] ?? ($payload['context']['reason'] ?? 'subscription_renewal'));
+        if ($reason === 'dms_addon_purchase') {
+            $activationResult = $this->CI->Kt_saas_model->activate_tenant_dms_addon_from_invoice(
+                $this->CI->Kt_saas_model->get_invoice((int) ($invoice['id'] ?? 0)) ?: $invoice,
+                $paymentData
+            );
+
+            if (empty($activationResult['success'])) {
+                $this->CI->Kt_saas_model->log_activity('invoice.dms_addon_activation_failed', 'warning', [
+                    'invoice_id' => (int) ($invoice['id'] ?? 0),
+                    'tenant_id' => (int) ($invoice['tenant_id'] ?? 0),
+                    'reason' => $reason,
+                    'message' => (string) ($activationResult['message'] ?? 'Unknown activation failure.'),
+                ], (int) ($invoice['tenant_id'] ?? 0));
+            }
+
+            return;
+        }
+
+        $this->reactivateSubscriptionAfterPayment($invoice, $now);
     }
 
     protected function dispatchPaymentSuccessEmail(array $invoice, array $paymentData, array $result)
@@ -538,7 +568,21 @@ class BillingEngineService
             $context['dedupe_key'] = (string) ($guard['dedupe_key'] ?? '');
         }
 
-        $result['email_dispatch']['payment_success'] = $this->CI->Kt_saas_model->send_email_event('payment_success', $context);
+        try {
+            $result['email_dispatch']['payment_success'] = $this->CI->Kt_saas_model->send_email_event('payment_success', $context);
+        } catch (\Throwable $e) {
+            $this->CI->Kt_saas_model->log_activity('invoice.payment_success_email_failed', 'warning', [
+                'invoice_id' => (int) ($invoice['id'] ?? 0),
+                'tenant_id' => (int) ($invoice['tenant_id'] ?? 0),
+                'error' => $e->getMessage(),
+            ], (int) ($invoice['tenant_id'] ?? 0));
+
+            $result['email_dispatch']['payment_success'] = [
+                'success' => false,
+                'message' => $e->getMessage(),
+            ];
+        }
+
         return $result;
     }
 

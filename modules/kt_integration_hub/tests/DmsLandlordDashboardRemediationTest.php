@@ -1,0 +1,1 @@
+<?php defined('BASEPATH') or define('BASEPATH',__DIR__);$s=file_get_contents(dirname(__DIR__).'/views/admin/dms_landlord/dashboard.php');foreach(['Dữ liệu đồng bộ đã cũ','Cấu hình workspace cần kiểm tra','Thiếu trạng thái thanh toán','Nguyên nhân','Bước xử lý']as$n)if(strpos($s,$n)===false)throw new RuntimeException($n);echo"DmsLandlordDashboardRemediationTest passed.\n";

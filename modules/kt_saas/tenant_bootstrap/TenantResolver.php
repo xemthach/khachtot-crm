@@ -4,12 +4,24 @@ defined('BASEPATH') or exit('No direct script access allowed');
 
 class TenantResolver
 {
-    public function resolveByHost($host)
+    public static function normalizeHost($host)
     {
         $host = strtolower(trim((string) $host));
-        if ($host === '') {
-            return ['resolved' => false, 'reason' => 'empty_host'];
+        if ($host === '' || strlen($host) > 253 || preg_match('/[^a-z0-9.:-]/', $host)) return null;
+        if (substr($host, -1) === '.') $host = rtrim($host, '.');
+        if (substr_count($host, ':') > 1) return null;
+        if (strpos($host, ':') !== false) {
+            [$host, $port] = explode(':', $host, 2);
+            if ($port === '' || !ctype_digit($port) || (int) $port < 1 || (int) $port > 65535) return null;
         }
+        if ($host === '' || strpos($host, '..') !== false || !preg_match('/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/', $host)) return null;
+        return $host;
+    }
+
+    public function resolveByHost($host)
+    {
+        $host = self::normalizeHost($host);
+        if ($host === null) return ['resolved' => false, 'reason' => 'invalid_host'];
 
         $CI = &get_instance();
 

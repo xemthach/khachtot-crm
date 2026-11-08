@@ -108,13 +108,20 @@ class Kt_sepay_gateway extends App_gateway
         }
 
         $invoiceId = (int) $invoice['id'];
-        $existing = $this->ci->Kt_sepay_model->get_latest_open_payment_request_for_context('kt_saas_subscription', $invoiceId);
+        $payload = json_decode((string) ($invoice['payload_json'] ?? ''), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+
+        $reason = strtolower(trim((string) ($payload['reason'] ?? ($payload['context']['reason'] ?? ''))));
+        $contextType = $reason === 'dms_addon_purchase' ? 'kt_saas_dms_addon' : 'kt_saas_subscription';
+        $existing = $this->ci->Kt_sepay_model->get_latest_open_payment_request_for_context($contextType, $invoiceId);
         if ($existing && (float) $existing['amount'] === (float) ($invoice['grand_total'] ?? 0)) {
             return (int) $existing['id'];
         }
 
         $settings = $this->ci->Kt_sepay_model->get_settings(null, false);
-        $referenceCode = $this->buildReferenceCode('kt_saas_subscription', [
+        $referenceCode = $this->buildReferenceCode($contextType, [
             'context_id'      => $invoiceId,
             'tenant_id'       => (int) ($tenant['id'] ?? 0),
             'subscription_id' => (int) ($invoice['subscription_id'] ?? 0),
@@ -132,7 +139,7 @@ class Kt_sepay_gateway extends App_gateway
         );
 
         return $this->ci->Kt_sepay_model->create_payment_request([
-            'context_type'    => 'kt_saas_subscription',
+            'context_type'    => $contextType,
             'context_id'      => $invoiceId,
             'tenant_id'       => (int) ($tenant['id'] ?? 0),
             'invoice_id'      => $invoiceId,
@@ -265,6 +272,7 @@ class Kt_sepay_gateway extends App_gateway
         $prefixMap = [
             'perfex_invoice'       => trim((string) ($settings['reference_prefix_invoice'] ?? 'KTINV')),
             'kt_saas_subscription' => trim((string) ($settings['reference_prefix_subscription'] ?? 'KTSAAS')),
+            'kt_saas_dms_addon'    => 'KTDMS',
             'kt_matbao_invoice_order' => 'KTMBAO',
             'manual'               => trim((string) ($settings['reference_prefix_manual'] ?? 'KTPAY')),
         ];
@@ -279,6 +287,10 @@ class Kt_sepay_gateway extends App_gateway
         }
 
         if ($contextType === 'kt_saas_subscription') {
+            return $prefix . (int) ($parts['tenant_id'] ?? 0) . 'S' . (int) ($parts['subscription_id'] ?? 0) . 'I' . (int) ($parts['context_id'] ?? 0);
+        }
+
+        if ($contextType === 'kt_saas_dms_addon') {
             return $prefix . (int) ($parts['tenant_id'] ?? 0) . 'S' . (int) ($parts['subscription_id'] ?? 0) . 'I' . (int) ($parts['context_id'] ?? 0);
         }
 

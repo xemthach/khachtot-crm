@@ -207,7 +207,7 @@ class Kt_sepay_processor
         }
 
         $amountResult = $this->CI->kt_sepay_matcher->evaluateAmount($request, $payload, !empty($requestSettings['allow_partial_payment']));
-        if ((string) $request['context_type'] === 'kt_saas_subscription' && $amountResult['status'] === 'partial') {
+        if (in_array((string) $request['context_type'], ['kt_saas_subscription', 'kt_saas_dms_addon'], true) && $amountResult['status'] === 'partial') {
             $this->CI->Kt_sepay_model->update_payment_request((int) $request['id'], [
                 'status'      => 'partial',
                 'paid_amount' => (float) $amountResult['received'],
@@ -270,7 +270,7 @@ class Kt_sepay_processor
             return $result;
         }
 
-        if ((string) $request['context_type'] === 'kt_saas_subscription') {
+        if (in_array((string) $request['context_type'], ['kt_saas_subscription', 'kt_saas_dms_addon'], true)) {
             require_once module_dir_path('kt_saas', 'services/BillingEngineService.php');
             $this->CI->load->model('kt_saas/Kt_saas_model');
             $invoice = $this->CI->Kt_sepay_model->get_kt_saas_invoice((int) ($request['invoice_id'] ?? 0));

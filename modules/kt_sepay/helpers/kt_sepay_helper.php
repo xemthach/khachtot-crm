@@ -130,14 +130,15 @@ if (!function_exists('kt_sepay_json_decode')) {
 }
 
 if (!function_exists('kt_sepay_reference_prefixes')) {
-    function kt_sepay_reference_prefixes()
-    {
-        return [
-            'perfex_invoice'       => 'KTINV',
-            'kt_saas_subscription' => 'KTSAAS',
-            'manual'               => 'KTPAY',
-        ];
-    }
+function kt_sepay_reference_prefixes()
+{
+    return [
+        'perfex_invoice'       => 'KTINV',
+        'kt_saas_subscription' => 'KTSAAS',
+        'kt_saas_dms_addon'    => 'KTDMS',
+        'manual'               => 'KTPAY',
+    ];
+}
 }
 
 if (!function_exists('kt_sepay_status_badge_class')) {

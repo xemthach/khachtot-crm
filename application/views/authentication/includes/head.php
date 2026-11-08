@@ -6,6 +6,8 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563eb'/%3E%3Cpath d='M8 9h6v6h4V9h6v14h-6v-5h-4v5H8z' fill='white'/%3E%3C/svg%3E">
     <title>
         <?php echo e((function_exists('kt_saas_auth_context') && ($ctx = kt_saas_auth_context()) && !empty($ctx['company_name'])) ? $ctx['company_name'] : get_option('companyname')); ?> - <?php echo _l('admin_auth_login_heading'); ?>
     </title>

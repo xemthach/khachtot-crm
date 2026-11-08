@@ -25,7 +25,9 @@
                     <td><?php echo html_escape($job['updated_at'] ?? '-'); ?></td>
                     <td class="text-right">
                         <?php if (in_array((string) $job['status'], ['failed', 'retry'], true)) { ?>
-                            <a href="<?php echo admin_url('kt_integration_hub/retry_job/' . (int) $job['id']); ?>" class="btn btn-default btn-sm"><?php echo _l('kt_integration_hub_retry'); ?></a>
+                            <?php echo form_open(admin_url('kt_integration_hub/retry_job/' . (int) $job['id']), ['class' => 'tw-inline']); ?>
+                            <button type="submit" class="btn btn-default btn-sm"><?php echo _l('kt_integration_hub_retry'); ?></button>
+                            <?php echo form_close(); ?>
                         <?php } ?>
                     </td>
                 </tr>

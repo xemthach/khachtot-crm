@@ -4,6 +4,23 @@ if( ! ini_get('date.timezone') )
    date_default_timezone_set('GMT');
 }
 
+if (PHP_SAPI === 'cli' && !empty($_SERVER['argv'])) {
+	$_SERVER['QUERY_STRING'] = $_SERVER['QUERY_STRING'] ?? '';
+	$cleanArgv = [];
+	$namedOptions = [];
+	foreach ($_SERVER['argv'] as $argument) {
+		if (strpos((string) $argument, '--') === 0) {
+			$parts = explode('=', substr((string) $argument, 2), 2);
+			$namedOptions[$parts[0]] = $parts[1] ?? true;
+			continue;
+		}
+		$cleanArgv[] = $argument;
+	}
+	$GLOBALS['KT_CLI_NAMED_OPTIONS'] = $namedOptions;
+	$_SERVER['argv'] = $cleanArgv;
+	$_SERVER['argc'] = count($cleanArgv);
+}
+
 register_shutdown_function(function () {
 	$error = error_get_last();
 	if (!$error) {
@@ -74,7 +91,23 @@ register_shutdown_function(function () {
  *
  * NOTE: If you change these, also change the error_reporting() code below
  */
-	define('ENVIRONMENT', 'production');
+	$runtimeEnvironment = strtolower(trim((string) getenv('APP_ENV')));
+	$runtimeHost = strtolower(trim((string) ($_SERVER['HTTP_HOST'] ?? '')));
+	if ($runtimeEnvironment === '' && preg_match('/(?:^|\.)test(?::\d+)?$/', $runtimeHost)) {
+		$runtimeEnvironment = 'local';
+	}
+
+	if ($runtimeEnvironment === 'local') {
+		$runtimeEnvironment = 'development';
+	} elseif ($runtimeEnvironment === 'staging') {
+		$runtimeEnvironment = 'testing';
+	}
+
+	if (!in_array($runtimeEnvironment, ['development', 'testing', 'production'], true)) {
+		$runtimeEnvironment = 'production';
+	}
+
+	define('ENVIRONMENT', $runtimeEnvironment);
 
 /*
  *---------------------------------------------------------------
@@ -88,12 +121,14 @@ switch (ENVIRONMENT)
 {
 	case 'development':
 		error_reporting(-1);
-		ini_set('display_errors', 1);
+		ini_set('display_errors', 0);
+		ini_set('log_errors', 1);
 	break;
 
 	case 'testing':
 	case 'production':
 		ini_set('display_errors', 0);
+		ini_set('log_errors', 1);
 		if (version_compare(PHP_VERSION, '5.3', '>='))
 		{
 			error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED & ~E_STRICT & ~E_USER_NOTICE & ~E_USER_DEPRECATED);

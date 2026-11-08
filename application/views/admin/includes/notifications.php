@@ -1,5 +1,6 @@
 <?php defined('BASEPATH') or exit('No direct script access allowed'); ?>
-<a href="#" class="dropdown-toggle notifications-icon !tw-px-0 tw-group" data-toggle="dropdown" aria-expanded="false">
+<a href="#" class="dropdown-toggle notifications-icon !tw-px-0 tw-group" data-toggle="dropdown" aria-expanded="false"
+    aria-label="<?= e(_l('nav_notifications')); ?>" title="<?= e(_l('nav_notifications')); ?>">
     <span class="sm:tw-inline-flex sm:tw-items-center sm:tw-justify-center sm:tw-h-8 sm:tw-w-9 sm:-tw-mt-1.5">
         <i class="fa-regular fa-bell fa-lg tw-shrink-0 tw-text-neutral-500 group-hover:tw-text-neutral-800"></i>
         <?php if ($current_user->total_unread_notifications > 0) { ?>

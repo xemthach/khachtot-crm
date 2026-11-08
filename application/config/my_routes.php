@@ -48,3 +48,58 @@ $route['admin/kt_einvoice/download/(:num)/(:any)']               = 'kt_einvoice/
 $route['admin/kt_einvoice/batch_issue']                          = 'kt_einvoice/kt_einvoice/batch_issue';
 $route['admin/kt_einvoice/batch_status/(:any)']                  = 'kt_einvoice/kt_einvoice/batch_status/$1';
 $route['admin/kt_einvoice/check_status/(:num)']                  = 'kt_einvoice/kt_einvoice/check_status/$1';
+
+// ---------------------------------------------------------------------------
+// KT Integration Hub public bridge API routes
+// These routes must be loaded by application/config/routes.php because the
+// module-local config/routes.php is not parsed by the main Perfex router.
+// ---------------------------------------------------------------------------
+$route['misa/callback']                                      = 'kt_misa_amis_accounting/kt_misa_callback/index';
+$route['admin/kt_misa_amis_accounting']                      = 'kt_misa_amis_accounting/kt_misa_amis_accounting/index';
+$route['admin/misa-amis/readiness']                          = 'kt_misa_amis_accounting/kt_misa_amis_accounting/readiness';
+$route['admin/misa-amis/external-test']                      = 'kt_misa_amis_accounting/kt_misa_amis_accounting/external_test';
+$route['admin/kt_misa_amis_accounting/connections']          = 'kt_misa_amis_accounting/kt_misa_amis_accounting/connections';
+$route['admin/kt_misa_amis_accounting/connections/create']   = 'kt_misa_amis_accounting/kt_misa_amis_accounting/connections';
+$route['admin/kt_misa_amis_accounting/connections/(:num)']   = 'kt_misa_amis_accounting/kt_misa_amis_accounting/connections/$1';
+$route['admin/kt_misa_amis_accounting/connections/(:num)/disable'] = 'kt_misa_amis_accounting/kt_misa_amis_accounting/disable/$1';
+$route['admin/kt_misa_amis_accounting/connections/(:num)/enable'] = 'kt_misa_amis_accounting/kt_misa_amis_accounting/enable/$1';
+$route['admin/kt_misa_amis_accounting/connections/(:num)/test'] = 'kt_misa_amis_accounting/kt_misa_amis_accounting/mock_test/$1';
+$route['admin/kt_misa_amis_accounting/mappings']             = 'kt_misa_amis_accounting/kt_misa_amis_accounting/mappings';
+$route['admin/kt_misa_amis_accounting/requests']             = 'kt_misa_amis_accounting/kt_misa_amis_accounting/requests';
+$route['admin/kt_misa_amis_accounting/dry-run']              = 'kt_misa_amis_accounting/kt_misa_amis_accounting/dry_run';
+$route['admin/kt_misa_amis_accounting/requests/(:num)']     = 'kt_misa_amis_accounting/kt_misa_amis_accounting/request_detail/$1';
+$route['admin/kt_misa_amis_accounting/requests/(:num)/retry'] = 'kt_misa_amis_accounting/kt_misa_amis_accounting/retry/$1';
+$route['admin/kt_misa_amis_accounting/requests/(:num)/cancel'] = 'kt_misa_amis_accounting/kt_misa_amis_accounting/cancel/$1';
+$route['admin/kt_misa_amis_accounting/requests/(:num)/payload'] = 'kt_misa_amis_accounting/kt_misa_amis_accounting/payload/$1';
+$route['admin/kt_misa_amis_accounting/requests/(:num)/sensitive-metadata'] = 'kt_misa_amis_accounting/kt_misa_amis_accounting/sensitive_metadata/$1';
+$route['kt_misa_amis_accounting/worker/work'] = 'kt_misa_amis_accounting/kt_misa_worker/work';
+$route['kt_misa_amis_accounting/worker/work_tenant'] = 'kt_misa_amis_accounting/kt_misa_worker/work_tenant';
+$route['kt_misa_amis_accounting/worker/reconcile'] = 'kt_misa_amis_accounting/kt_misa_worker/reconcile';
+$route['kt_misa_amis_accounting/worker/refresh_token'] = 'kt_misa_amis_accounting/kt_misa_worker/refresh_token';
+$route['kt_misa_amis_accounting/worker/health'] = 'kt_misa_amis_accounting/kt_misa_worker/health';
+
+$route['api/v1/integration/tenant/context']                      = 'kt_integration_hub/kt_integration_api/tenant_context';
+$route['api/v1/integration/dms/workspace']                      = 'kt_integration_hub/kt_integration_api/dms_workspace';
+$route['api/v1/integration/map/browser-loader']                 = 'kt_integration_hub/kt_integration_api/map_browser_loader';
+$route['api/v1/licensing/tenant']                                = 'kt_integration_hub/kt_integration_api/licensing_tenant';
+$route['api/v1/integration/mail/send']                           = 'kt_integration_hub/kt_integration_api/mail_send';
+$route['api/v1/dms/orders']                                      = 'kt_integration_hub/kt_integration_api/dms_orders';
+$route['api/v1/dms/orders/(:num)/cancel']                        = 'kt_integration_hub/kt_integration_api/dms_order_cancel/$1';
+$route['api/v1/manual-reviews']                                  = 'kt_integration_hub/kt_integration_api/manual_reviews';
+$route['api/v1/manual-reviews/(:num)']                           = 'kt_integration_hub/kt_integration_api/manual_review/$1';
+$route['api/v1/manual-reviews/(:num)/assign']                    = 'kt_integration_hub/kt_integration_api/manual_review_assign/$1';
+$route['api/v1/manual-reviews/(:num)/resolve']                   = 'kt_integration_hub/kt_integration_api/manual_review_resolve/$1';
+$route['api/v1/manual-reviews/(:num)/close']                     = 'kt_integration_hub/kt_integration_api/manual_review_close/$1';
+$route['api/v1/notifications']                                   = 'kt_integration_hub/kt_integration_api/notifications';
+$route['api/v1/notifications/(:num)']                            = 'kt_integration_hub/kt_integration_api/notification/$1';
+$route['api/v1/notifications/(:num)/read']                       = 'kt_integration_hub/kt_integration_api/notification_read/$1';
+$route['api/v1/notifications/(:num)/ack']                        = 'kt_integration_hub/kt_integration_api/notification_ack/$1';
+$route['api/v1/crm/invoices/(:num)']                             = 'kt_integration_hub/kt_integration_api/crm_invoice/$1';
+$route['api/v1/crm/payments/(:num)']                              = 'kt_integration_hub/kt_integration_api/crm_payment/$1';
+$route['api/v1/dms/checkins']                                    = 'kt_integration_hub/kt_integration_api/dms_checkins';
+$route['api/v1/dms/visits']                                      = 'kt_integration_hub/kt_integration_api/dms_visits';
+$route['api/v1/dms/field-feedback']                              = 'kt_integration_hub/kt_integration_api/dms_field_feedback';
+$route['api/v1/dms/live-tracking']                               = 'kt_integration_hub/kt_integration_api/dms_live_tracking';
+$route['api/v1/dms/route-performance']                           = 'kt_integration_hub/kt_integration_api/dms_route_performance';
+$route['api/v1/sso/token']                                       = 'kt_integration_hub/kt_integration_sso/token';
+$route['sso/dms']                                                = 'kt_integration_hub/kt_integration_sso/dms';

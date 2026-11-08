@@ -1,0 +1,1 @@
+<?php defined('BASEPATH') or define('BASEPATH',__DIR__);$s=file_get_contents(dirname(__DIR__).'/views/admin/dms/sync_health.php');if(strpos($s,'Chi tiết kỹ thuật cấp operator')!==false)throw new RuntimeException('technical note');if(strpos($s,'Thông tin dành cho hỗ trợ')===false)throw new RuntimeException('missing collapse');echo"DmsTenantTechnicalNoteCleanupTest passed.\n";

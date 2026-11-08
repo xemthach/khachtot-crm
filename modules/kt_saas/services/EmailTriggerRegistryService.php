@@ -5,6 +5,17 @@ defined('BASEPATH') or exit('No direct script access allowed');
 class EmailTriggerRegistryService
 {
     protected array $registry = [
+        'dms_auth_mail' => [
+            'event_key' => 'dms_auth_mail',
+            'recipient_scope' => 'tenant_admin',
+            'branding_context' => 'tenant',
+            'provider_context' => 'tenant_custom',
+            'resource_type' => 'staff',
+            'delivery_mode' => 'email',
+            'template_slug' => 'dms-auth-link',
+            'duplicate_guard_key' => 'dms_auth_mail',
+            'priority' => 'p0',
+        ],
         'payment_success' => [
             'event_key' => 'payment_success',
             'recipient_scope' => 'tenant_admin',

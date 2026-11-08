@@ -40,6 +40,309 @@ class Kt_saas_cli extends CI_Controller
         }
     }
 
+    public function qa_auth_create()
+    {
+        $this->load->model('Qa_auth_model');
+        $role = (string) $this->cliOption('role', 'landlord_admin');
+        $tenantId = (int) $this->cliOption('tenant', 0);
+        $ttl = (int) $this->cliOption('ttl', 600);
+        $purpose = (string) $this->cliOption('purpose', 'QA browser proof');
+
+        if ($tenantId > 0) {
+            $tenant = $this->db
+                ->where('id', $tenantId)
+                ->get(db_prefix() . 'kt_saas_tenants')
+                ->row_array();
+            if (!$tenant) {
+                $this->outputJson(['success' => false, 'message' => 'Tenant not found.']);
+                return;
+            }
+
+            $tenantDb = $this->connectTenantDatabaseForCli($tenant);
+            if (!$tenantDb) {
+                $this->outputJson(['success' => false, 'message' => 'Tenant database is unavailable.']);
+                return;
+            }
+            $this->Qa_auth_model->use_database($tenantDb);
+        }
+
+        $result = $this->Qa_auth_model->create_token($role, $tenantId, $ttl, $purpose);
+        $this->outputJson([
+            'success' => true,
+            'token_id' => $result['token_id'],
+            'raw_token' => $result['raw_token'],
+            'expires_at' => $result['expires_at'],
+            'staff_id' => $result['staff_id'],
+            'redeem_route' => '/admin/qa-auth/redeem',
+        ]);
+    }
+
+    public function qa_auth_revoke()
+    {
+        $this->load->model('Qa_auth_model');
+        $this->useTenantQaAuthDatabaseIfRequested();
+        $tokenId = (string) $this->cliOption('token-id', '');
+        if ($tokenId === '') {
+            $this->outputJson(['success' => false, 'message' => '--token-id is required']);
+            return;
+        }
+
+        $this->outputJson([
+            'success' => $this->Qa_auth_model->revoke($tokenId),
+            'token_id' => $tokenId,
+        ]);
+    }
+
+    public function qa_auth_cleanup()
+    {
+        $this->load->model('Qa_auth_model');
+        $this->useTenantQaAuthDatabaseIfRequested();
+        $this->outputJson([
+            'success' => true,
+            'deleted' => $this->Qa_auth_model->cleanup(),
+        ]);
+    }
+
+    public function dms_rotate_bridge_credentials($tenantId = 0)
+    {
+        $localHost = strtolower((string) parse_url((string) APP_BASE_URL, PHP_URL_HOST));
+        if (PHP_SAPI !== 'cli' || (!str_ends_with($localHost, '.test') && !in_array($localHost, ['localhost', '127.0.0.1'], true))) {
+            throw new RuntimeException('Bridge credential rotation is CLI-only and local-only.');
+        }
+
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0) {
+            throw new RuntimeException('A tenant id is required.');
+        }
+
+        $this->load->helper(KT_INTEGRATION_HUB_MODULE . '/kt_integration_hub');
+        $table = db_prefix() . 'kt_integration_connections';
+        $connection = $this->db
+            ->where('tenant_id', $tenantId)
+            ->where('provider_code', 'salesflow_dms')
+            ->get($table)
+            ->row_array();
+        if (!$connection) {
+            throw new RuntimeException('Salesrep DMS connection was not found.');
+        }
+
+        $token = 'dms_' . bin2hex(random_bytes(24));
+        $secret = bin2hex(random_bytes(32));
+        $this->db->where('id', (int) $connection['id'])->update($table, [
+            'public_key' => $token,
+            'webhook_secret_encrypted' => kt_integration_hub_encrypt_value($secret),
+            'status' => 'disconnected',
+            'last_error' => null,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        echo json_encode([
+            'success' => true,
+            'tenant_id' => $tenantId,
+            'connection_id' => (int) $connection['id'],
+            'status' => 'disconnected',
+            'token_fingerprint' => substr(hash('sha256', $token), 0, 12),
+            'secret_fingerprint' => substr(hash('sha256', $secret), 0, 12),
+        ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    }
+
+    public function dms_integration_ops($action = 'health', $tenantId = 0)
+    {
+        $localHost = strtolower((string) parse_url((string) APP_BASE_URL, PHP_URL_HOST));
+        if (PHP_SAPI !== 'cli' || ENVIRONMENT !== 'development' || (!str_ends_with($localHost, '.test') && !in_array($localHost, ['localhost', '127.0.0.1'], true))) {
+            throw new RuntimeException('DMS integration operations are CLI-only and local-development-only.');
+        }
+
+        $this->load->helper(KT_INTEGRATION_HUB_MODULE . '/kt_integration_hub');
+        $this->load->model(KT_INTEGRATION_HUB_MODULE . '/Kt_integration_model');
+        $tenantId = (int) $tenantId;
+        $table = db_prefix() . 'kt_integration_sync_jobs';
+
+        if ($action === 'run-pending-once') {
+            $this->outputJson($this->Kt_integration_model->process_due_jobs(50));
+            return;
+        }
+
+        if ($action === 'retry-failed') {
+            $db = $this->db->where('status', 'failed');
+            if ($tenantId > 0) {
+                $db->where('tenant_id', $tenantId);
+            }
+            $db->update($table, [
+                'status' => 'retry',
+                'available_at' => date('Y-m-d H:i:s'),
+                'locked_at' => null,
+                'error_message' => null,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $this->outputJson(['success' => true, 'retried' => $this->db->affected_rows(), 'tenant_id' => $tenantId ?: null]);
+            return;
+        }
+
+        if ($action !== 'health') {
+            throw new RuntimeException('Unsupported DMS integration operations action.');
+        }
+
+        $counts = [];
+        foreach (['queued', 'retry', 'processing', 'failed', 'done'] as $status) {
+            $db = $this->db->where('status', $status);
+            if ($tenantId > 0) {
+                $db->where('tenant_id', $tenantId);
+            }
+            $counts[$status] = (int) $db->count_all_results($table);
+        }
+        $this->outputJson([
+            'success' => true,
+            'tenant_id' => $tenantId ?: null,
+            'queue' => $counts,
+            'heartbeat' => $this->Kt_integration_model->get_integration_heartbeat_health(120),
+            'cron_command' => 'php index.php kt_integration_hub/kt_integration_cron/process_jobs',
+        ]);
+    }
+
+    public function dms_identity_schema_upgrade()
+    {
+        $localHost = strtolower((string) parse_url((string) APP_BASE_URL, PHP_URL_HOST));
+        if (PHP_SAPI !== 'cli' || ENVIRONMENT !== 'development' || (!str_ends_with($localHost, '.test') && !in_array($localHost, ['localhost', '127.0.0.1'], true))) {
+            throw new RuntimeException('Identity schema upgrade is CLI-only and local-development-only.');
+        }
+        require module_dir_path('kt_integration_hub', 'install.php');
+        $this->outputJson(['success' => true, 'schema_version' => defined('KT_INTEGRATION_HUB_VERSION') ? KT_INTEGRATION_HUB_VERSION : null]);
+    }
+
+    public function dms_identity_backfill($tenantId = 0, $apply = 'dry-run')
+    {
+        $localHost = strtolower((string) parse_url((string) APP_BASE_URL, PHP_URL_HOST));
+        if (PHP_SAPI !== 'cli' || ENVIRONMENT !== 'development' || (!str_ends_with($localHost,'.test') && !in_array($localHost,['localhost','127.0.0.1'],true))) throw new RuntimeException('Identity backfill is local CLI only.');
+        $tenantId=(int)$tenantId; $doApply=$apply==='apply'; $landlord=$this->db;
+        $tenant=$landlord->where('id',$tenantId)->get(db_prefix().'kt_saas_tenants')->row_array(); if(!$tenant) throw new RuntimeException('Tenant not found.');
+        $companyId=(int)(kt_integration_hub_crm_company_id($tenant)??0);
+        require_once module_dir_path('kt_saas','tenant_bootstrap/DatabaseSwitcher.php');
+        if(empty((new DatabaseSwitcher())->switchConnection($tenant)['switched'])) throw new RuntimeException('Tenant switch failed.');
+        $tenantDb=$this->db; $this->db=$landlord;
+        $links=$landlord->where('tenant_id',$tenantId)->where('provider_code','salesflow_dms')->get(db_prefix().'kt_integration_entity_links')->result_array();
+        $counts=['SAFE'=>0,'TOMBSTONE'=>0,'CONFLICT'=>0,'ORPHAN'=>0,'DUPLICATE'=>0]; $rows=[];
+        $map=['product'=>['items','id','sku'],'customer'=>['clients','userid','customer_code'],'staff'=>['staff','staffid','email'],'warehouse'=>['kt_warehouses','id','warehouse_code']];
+        foreach($links as $link){ $type=(string)$link['entity_type']; if(!isset($map[$type])) continue; [$table,$pk,$businessField]=$map[$type];
+            $meta=kt_integration_hub_json_decode((string)($link['metadata_json']??''),[]); $payload=(array)($meta['last_payload']['payload']??[]); $entity=(array)($payload[$type]??($type==='customer'?($payload['customer']??[]):[]));
+            $oldBusiness=strtoupper(trim((string)($entity[$businessField]??($type==='product'?($entity['sku']??''):''))));
+            $source=$tenantDb->where($pk,(int)$link['local_id'])->get(db_prefix().$table)->row_array();
+            $classification='SAFE'; if(!$source){$classification='TOMBSTONE';}
+            $currentBusiness=$oldBusiness;
+            if($source){ if($type==='product')$currentBusiness=strtoupper(trim((string)($source['commodity_code']??'')))?:$oldBusiness; elseif($type==='customer')$currentBusiness=strtoupper(trim((string)($source['customer_code']??'')))?:('CRM-CLIENT-'.(int)$source['userid']); elseif($type==='staff')$currentBusiness=strtoupper(trim((string)($source['email']??''))); elseif($type==='warehouse')$currentBusiness=strtoupper(trim((string)($source['warehouse_code']??'')));
+                if($oldBusiness!=='' && $currentBusiness!=='' && $oldBusiness!==$currentBusiness)$classification='CONFLICT'; }
+            $identityBusiness=$classification==='SAFE'?$currentBusiness:($oldBusiness?:('LEGACY-'.$type.'-'.(int)$link['local_id']));
+            $stable='crm_'.$type.'_'.substr(hash('sha256',implode('|',['khachtot_crm',$tenantId,$companyId,$type,$identityBusiness])),0,40);
+            $counts[$classification]++; $rows[]=['link_id'=>(int)$link['id'],'entity_type'=>$type,'numeric_id'=>(int)$link['local_id'],'classification'=>$classification,'stable_key'=>$stable];
+            if($doApply){$landlord->where('id',(int)$link['id'])->update(db_prefix().'kt_integration_entity_links',['company_id'=>$companyId,'source_system'=>'khachtot_crm','source_numeric_id'=>(int)$link['local_id'],'source_stable_key'=>$stable,'source_fingerprint'=>(string)($link['external_hash']??''),'source_version'=>1,'target_system'=>'salesrep_dms','target_entity_id'=>(string)$link['external_id'],'lifecycle_state'=>$classification==='SAFE'?'active':'tombstoned','first_seen_at'=>$link['created_at']??kt_integration_hub_now(),'last_seen_at'=>$link['last_synced_at']??null,'tombstoned_at'=>$classification==='SAFE'?null:kt_integration_hub_now(),'updated_at'=>kt_integration_hub_now()]);}
+        }
+        $this->db=$landlord; $this->outputJson(['success'=>true,'tenant_id'=>$tenantId,'apply'=>$doApply,'counts'=>$counts,'rows'=>$rows]);
+    }
+
+    public function qa_data_loss_snapshot()
+    {
+        $tenantId = max(1, (int) $this->cliOption('tenant', 30));
+        $tables = [
+            'sync_scope' => db_prefix() . 'kt_dms_sync_scope',
+            'staff_access' => db_prefix() . 'kt_dms_staff_access',
+            'audit' => db_prefix() . 'kt_dms_landlord_actions',
+        ];
+        $result = ['tenant_id' => $tenantId, 'tables' => []];
+
+        foreach ($tables as $key => $table) {
+            if (!$this->db->table_exists($table)) {
+                $result['tables'][$key] = ['count' => 0, 'hash' => sha1('missing')];
+                continue;
+            }
+
+            $rows = $this->db
+                ->where('tenant_id', $tenantId)
+                ->order_by('id', 'asc')
+                ->get($table)
+                ->result_array();
+            foreach ($rows as &$row) {
+                foreach (array_keys($row) as $column) {
+                    if (preg_match('/secret|token|password|payload/i', (string) $column)) {
+                        unset($row[$column]);
+                    }
+                }
+            }
+            unset($row);
+
+            $result['tables'][$key] = [
+                'count' => count($rows),
+                'hash' => sha1(json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
+            ];
+        }
+
+        $this->outputJson($result);
+    }
+
+    public function dms_identity_audit($tenantId = 0)
+    {
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0) {
+            $this->outputJson(['success' => false, 'code' => 'TENANT_ID_REQUIRED']);
+            return;
+        }
+
+        $tenant = $this->Kt_saas_model->get_tenant($tenantId);
+        if (!$tenant) {
+            $this->outputJson(['success' => false, 'code' => 'TENANT_NOT_FOUND', 'tenant_id' => $tenantId]);
+            return;
+        }
+
+        $companyId = function_exists('kt_integration_hub_crm_company_id')
+            ? kt_integration_hub_crm_company_id($tenant)
+            : null;
+        $workspaceCompanies = [];
+        $table = db_prefix() . 'kt_dms_workspaces';
+        if ($this->db->table_exists($table)) {
+            $workspaceCompanies = array_map('intval', array_column(
+                $this->db->select('company_id')->distinct()->where('tenant_id', $tenantId)->get($table)->result_array(),
+                'company_id'
+            ));
+        }
+
+        $this->outputJson([
+            'success' => true,
+            'tenant_id' => $tenantId,
+            'landlord_client_id' => isset($tenant['landlord_client_id']) ? (int) $tenant['landlord_client_id'] : null,
+            'canonical_company_id' => $companyId,
+            'workspace_company_ids' => $workspaceCompanies,
+        ]);
+    }
+
+    public function m8_data_integrity_check()
+    {
+        $tenantId = max(1, (int) $this->cliOption('tenant', 30));
+        $tenant = $this->db->where('id', $tenantId)->get(db_prefix().'kt_saas_tenants')->row_array();
+        if (!$tenant) { $this->outputJson(['success' => false, 'code' => 'TENANT_NOT_FOUND']); return; }
+        $tenantDb = $this->connectTenantDatabaseForCli($tenant);
+        if (!$tenantDb) { $this->outputJson(['success' => false, 'code' => 'TENANT_DATABASE_UNAVAILABLE']); return; }
+        require_once module_dir_path('kt_integration_hub', 'libraries/DmsIntegrationContractStore.php');
+        $store = new DmsIntegrationContractStore();
+        $store->ensureSchema();
+        $snapshot = static function ($db): array {
+            $result = [];
+            foreach (['items', 'itemable', 'payments'] as $name) {
+                $table = db_prefix().$name;
+                $result[$name] = $db->table_exists($table) ? ['count' => (int) $db->count_all($table), 'max_id' => (int) ($db->select_max('id')->get($table)->row_array()['id'] ?? 0)] : ['status' => 'NOT_FOUND'];
+            }
+            return $result;
+        };
+        $before = $snapshot($tenantDb);
+        $requestId = 'm8_integrity_'.bin2hex(random_bytes(8));
+        $payload = ['tenant_id' => $tenantId, 'company_id' => $tenantId, 'probe' => 'durable_idempotency'];
+        $first = $store->beginRequest($tenantId, $tenantId, 'm8_integrity_probe', $requestId, $requestId, $payload);
+        $store->completeRequest((int) $first['id'], ['status' => 'completed']);
+        if (function_exists('cache')) { cache()->clean(); }
+        $second = $store->beginRequest($tenantId, $tenantId, 'm8_integrity_probe', $requestId.'_replay', $requestId, $payload);
+        $after = $snapshot($tenantDb);
+        $this->db->where(['tenant_id' => $tenantId, 'company_id' => $tenantId, 'operation' => 'm8_integrity_probe', 'idempotency_key' => $requestId])->delete(db_prefix().'dms_integration_requests');
+        $this->outputJson(['success' => $before === $after && !empty($second['duplicate']), 'tenant_id' => $tenantId, 'before' => $before, 'after' => $after, 'idempotent_replay' => !empty($second['duplicate']), 'tblitemable_unchanged' => ($before['itemable'] ?? null) === ($after['itemable'] ?? null), 'inventory_bridge' => 'WAREHOUSE_STORE_MAPPING_REQUIRED', 'outbound_collection' => 'NOT_IMPLEMENTED']);
+    }
+
     public function provision_test($slug = 'demo')
     {
         $slug = strtolower(preg_replace('/[^a-z0-9]+/', '-', trim((string) $slug)));
@@ -551,6 +854,54 @@ class Kt_saas_cli extends CI_Controller
             if (isset($service) && $service instanceof TenantEmailProviderService) {
                 $service->applyRuntimeTransport(['transport' => null]);
             }
+        }
+    }
+
+    public function dms_auth_mail_test($tenantId = 27, $email = 'sme.mini@ranhroi.net')
+    {
+        try {
+            $tenantId = (int) $tenantId;
+            $email = trim((string) $email);
+
+            $tenant = $this->Kt_saas_model->get_tenant($tenantId);
+            if (!$tenant) {
+                $this->outputJson(['success' => false, 'message' => 'Tenant not found.', 'tenant_id' => $tenantId]);
+                return;
+            }
+
+            require_once APPPATH . '../modules/kt_integration_hub/libraries/DmsMailBridgeService.php';
+            $service = new DmsMailBridgeService();
+            $result = $service->send($tenant, [
+                'tenant_id' => $tenantId,
+                'crm_tenant_id' => $tenantId,
+                'crm_company_id' => $tenantId,
+                'tenant_code' => (string) ($tenant['tenant_code'] ?? ''),
+                'crm_staff_id' => 3,
+                'to' => $email,
+                'template' => 'dms_password_reset',
+                'subject' => 'Reset your DMS password',
+                'data' => [
+                    'name' => (string) ($tenant['owner_name'] ?? 'Tenant Admin'),
+                    'action_url' => 'http://salesrep.test/reset-password/runtime-debug-token?email=' . rawurlencode($email),
+                    'login_url' => 'http://salesrep.test/login',
+                    'expires_in_minutes' => 60,
+                    'support_email' => 'no-reply@mail.khachtot.com',
+                    'email_signature' => 'Khach Tot CRM',
+                    'app_name' => 'Salesflow DMS',
+                ],
+            ], [
+                'idempotency_key' => 'dms-auth-mail-test-' . date('YmdHis'),
+            ]);
+
+            $this->outputJson($result);
+        } catch (Throwable $e) {
+            $this->outputJson([
+                'success' => false,
+                'tenant_id' => isset($tenantId) ? (int) $tenantId : null,
+                'recipient' => isset($email) ? (string) $email : null,
+                'error' => $e->getMessage(),
+                'trace' => array_slice(explode(PHP_EOL, $e->getTraceAsString()), 0, 8),
+            ]);
         }
     }
 
@@ -1159,6 +1510,51 @@ class Kt_saas_cli extends CI_Controller
         ]);
     }
 
+    public function dms_activation($orderId)
+    {
+        $order = $this->Kt_saas_model->get_dms_commercial_order((int) $orderId);
+        if (!$order || (string) ($order['subscription_status'] ?? '') !== 'active') {
+            $this->outputJson(['success' => false, 'message' => 'DMS order is not ready for provisioning.']);
+            return;
+        }
+
+        $jobId = (int) ($order['provision_job_id'] ?? 0);
+        if ($jobId <= 0) {
+            $retry = $this->Kt_saas_model->retry_dms_commercial_order_provisioning((int) $orderId);
+            $jobId = (int) ($retry['job_id'] ?? 0);
+        }
+        $job = $jobId > 0 ? $this->Kt_saas_model->mark_provision_job_running($jobId) : null;
+        if (!$job) {
+            $latest = $this->Kt_saas_model->get_dms_commercial_order((int) $orderId);
+            $this->outputJson([
+                'success' => (string) ($latest['workspace_status'] ?? '') === 'ready',
+                'order_id' => (int) $orderId,
+                'job_id' => $jobId,
+                'job_status' => (string) ($latest['provision_job']['status'] ?? ''),
+                'workspace_status' => (string) ($latest['workspace_status'] ?? ''),
+                'reused' => true,
+            ]);
+            return;
+        }
+
+        $runner = new ProvisioningJobRunner();
+        $result = $runner->execute($job);
+        if (!empty($result['success'])) {
+            $this->Kt_saas_model->mark_provision_job_done($jobId, $result);
+        } else {
+            $this->Kt_saas_model->mark_provision_job_failed($jobId, (string) ($result['message'] ?? 'Provisioning failed.'), $result);
+        }
+        $latest = $this->Kt_saas_model->get_dms_commercial_order((int) $orderId);
+        $this->outputJson([
+            'success' => !empty($result['success']) && (string) ($latest['workspace_status'] ?? '') === 'ready',
+            'order_id' => (int) $orderId,
+            'job_id' => $jobId,
+            'job_status' => (string) ($latest['provision_job']['status'] ?? ''),
+            'workspace_status' => (string) ($latest['workspace_status'] ?? ''),
+            'password_stored' => false,
+        ]);
+    }
+
     public function backup_cert($tenantId)
     {
         $tenantId = (int) $tenantId;
@@ -1555,6 +1951,46 @@ class Kt_saas_cli extends CI_Controller
             || strpos($company, 'tenant test') !== false;
 
         return $hasDisposableMarker && in_array($status, ['trial', 'draft', 'active'], true);
+    }
+
+    private function cliOption($name, $default = null)
+    {
+        if (isset($GLOBALS['KT_CLI_NAMED_OPTIONS'])
+            && array_key_exists((string) $name, (array) $GLOBALS['KT_CLI_NAMED_OPTIONS'])) {
+            return $GLOBALS['KT_CLI_NAMED_OPTIONS'][(string) $name];
+        }
+
+        $prefix = '--' . trim((string) $name) . '=';
+        foreach ((array) ($_SERVER['argv'] ?? []) as $argument) {
+            if (strpos((string) $argument, $prefix) === 0) {
+                return substr((string) $argument, strlen($prefix));
+            }
+        }
+
+        return $default;
+    }
+
+    private function useTenantQaAuthDatabaseIfRequested()
+    {
+        $tenantId = (int) $this->cliOption('tenant', 0);
+        if ($tenantId <= 0) {
+            return;
+        }
+
+        $tenant = $this->db
+            ->where('id', $tenantId)
+            ->get(db_prefix() . 'kt_saas_tenants')
+            ->row_array();
+        if (!$tenant) {
+            throw new RuntimeException('Tenant not found.');
+        }
+
+        $tenantDb = $this->connectTenantDatabaseForCli($tenant);
+        if (!$tenantDb) {
+            throw new RuntimeException('Tenant database is unavailable.');
+        }
+
+        $this->Qa_auth_model->use_database($tenantDb);
     }
 
     private function connectTenantDatabaseForCli(array $tenant)

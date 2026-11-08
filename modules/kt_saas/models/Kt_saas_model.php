@@ -4,6 +4,8 @@ defined('BASEPATH') or exit('No direct script access allowed');
 
 class Kt_saas_model extends App_Model
 {
+    protected $planFeatureValueColumnExists = null;
+
     public function get_tenant_workspace_form_options()
     {
         $languages = $this->resolveTenantLanguageOptions();
@@ -1014,6 +1016,38 @@ class Kt_saas_model extends App_Model
             ->result_array();
     }
 
+    public function get_active_tenant_staff_members_for_tenant($tenantId)
+    {
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0) {
+            return [];
+        }
+
+        $tenant = $this->get_tenant($tenantId);
+        if (!$tenant) {
+            $tenant = $this->find_landlord_tenant_row($tenantId);
+        }
+
+        if (!$tenant) {
+            return [];
+        }
+
+        $tenantDb = $this->connect_tenant_runtime_db($tenant);
+        if (!$tenantDb || !$tenantDb->table_exists(db_prefix() . 'staff')) {
+            return [];
+        }
+
+        return $tenantDb
+            ->select('staffid, firstname, lastname, email, role, admin, active, phonenumber, default_language, datecreated, last_login, last_activity, last_password_change')
+            ->from(db_prefix() . 'staff')
+            ->where('active', 1)
+            ->order_by('admin', 'desc')
+            ->order_by('firstname', 'asc')
+            ->order_by('lastname', 'asc')
+            ->get()
+            ->result_array();
+    }
+
     public function get_tenant_roles()
     {
         if (!$this->db->table_exists(db_prefix() . 'roles')) {
@@ -1261,6 +1295,41 @@ class Kt_saas_model extends App_Model
     public function get_integration_feature_catalog()
     {
         return [
+            'dms.enabled' => [
+                'module_name' => 'dms',
+                'label'       => 'Enable DMS',
+                'description' => 'Allow the tenant to access the DMS execution engine and DMS dashboard surfaces.',
+            ],
+            'dms.checkin_enabled' => [
+                'module_name' => 'dms',
+                'label'       => 'Enable Check-in',
+                'description' => 'Allow the tenant to sync and view DMS check-in events.',
+            ],
+            'dms.visit_enabled' => [
+                'module_name' => 'dms',
+                'label'       => 'Enable Visit Snapshot',
+                'description' => 'Allow the tenant to sync and view DMS visit snapshots.',
+            ],
+            'dms.live_tracking_enabled' => [
+                'module_name' => 'dms',
+                'label'       => 'Enable Live Tracking',
+                'description' => 'Allow the tenant to sync and view DMS live tracking snapshots.',
+            ],
+            'dms.route_analytics_enabled' => [
+                'module_name' => 'dms',
+                'label'       => 'Enable Route Analytics',
+                'description' => 'Allow the tenant to view route performance analytics derived from DMS snapshots.',
+            ],
+            'dms.notification_bridge_enabled' => [
+                'module_name' => 'dms',
+                'label'       => 'Enable Notification Bridge',
+                'description' => 'Allow the tenant to receive CRM notifications in DMS.',
+            ],
+            'dms.sso_enabled' => [
+                'module_name' => 'dms',
+                'label'       => 'Enable SSO',
+                'description' => 'Allow the tenant to use trusted internal CRM-to-DMS SSO.',
+            ],
             'kt_sepay.settings.edit' => [
                 'module_name' => 'kt_sepay',
                 'label'       => 'KT SePay: edit settings',
@@ -1287,6 +1356,1870 @@ class Kt_saas_model extends App_Model
                 'description' => 'Allow tenant to edit e-Invoice defaults, attachment toggles and template selection.',
             ],
         ];
+    }
+
+    public function get_dms_quota_feature_catalog()
+    {
+        return [
+            'dms.package_code' => [
+                'module_name' => 'dms',
+                'label' => 'DMS package code',
+                'description' => 'Commercial package label exposed to Marketplace, Setup Center, and DMS licensing payloads.',
+                'input_type' => 'text',
+            ],
+            'dms.user_limit' => [
+                'module_name' => 'dms',
+                'label' => 'DMS user limit',
+                'description' => 'Maximum number of provisioned DMS users allowed for the tenant.',
+                'input_type' => 'number',
+            ],
+            'dms.store_limit' => [
+                'module_name' => 'dms',
+                'label' => 'Store limit',
+                'description' => 'Maximum number of stores/outlets the DMS workspace can use.',
+                'input_type' => 'number',
+            ],
+            'dms.product_limit' => [
+                'module_name' => 'dms',
+                'label' => 'Product sync limit',
+                'description' => 'Maximum number of CRM products that can be synced into DMS.',
+                'input_type' => 'number',
+            ],
+            'dms.checkin_monthly_limit' => [
+                'module_name' => 'dms',
+                'label' => 'Monthly check-in limit',
+                'description' => 'Maximum number of check-ins allowed per calendar month.',
+                'input_type' => 'number',
+            ],
+            'dms.photo_limit' => [
+                'module_name' => 'dms',
+                'label' => 'Monthly check-in photo limit',
+                'description' => 'Maximum number of check-in photos allowed per calendar month.',
+                'input_type' => 'number',
+            ],
+            'dms.report_export_limit' => [
+                'module_name' => 'dms',
+                'label' => 'Report export limit',
+                'description' => 'Maximum number of DMS report exports allowed per billing period.',
+                'input_type' => 'number',
+            ],
+            'dms.log_retention_months' => [
+                'module_name' => 'dms',
+                'label' => 'Log retention months',
+                'description' => 'How many months DMS activity/log snapshots should be retained.',
+                'input_type' => 'number',
+            ],
+        ];
+    }
+
+    public function get_dms_addon_package_catalog(): array
+    {
+        $catalog = [];
+        if (function_exists('get_option')) {
+            $raw = (string) get_option($this->get_dms_package_catalog_option_key());
+            if ($raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $catalog = $decoded;
+                }
+            }
+        }
+
+        if (empty($catalog)) {
+            $catalog = $this->get_default_dms_addon_package_catalog();
+        }
+
+        return $this->normalize_dms_addon_package_catalog($catalog);
+    }
+
+    public function save_dms_addon_package(array $data, $existingCode = null): array
+    {
+        $catalog = $this->get_dms_addon_package_catalog();
+        $existingCode = strtolower(trim((string) $existingCode));
+        $package = $this->normalize_dms_addon_package_definition($data, $existingCode !== '' ? ($catalog[$existingCode] ?? []) : []);
+        $packageCode = strtolower(trim((string) ($package['package_code'] ?? '')));
+
+        if ($packageCode === '') {
+            return ['success' => false, 'message' => 'Package code is required.'];
+        }
+
+        if ($existingCode !== '' && $existingCode !== $packageCode && isset($catalog[$existingCode]) && $this->count_dms_addon_package_usage($existingCode) > 0) {
+            return ['success' => false, 'message' => 'Cannot rename a DMS package that is already assigned to tenant subscriptions.'];
+        }
+
+        if ($existingCode !== '' && $existingCode !== $packageCode) {
+            unset($catalog[$existingCode]);
+        }
+
+        $catalog[$packageCode] = $package;
+        uasort($catalog, static function (array $left, array $right) {
+            return strcmp((string) ($left['name'] ?? $left['package_code'] ?? ''), (string) ($right['name'] ?? $right['package_code'] ?? ''));
+        });
+
+        $save = $this->persist_dms_addon_package_catalog($catalog);
+        if (empty($save['success'])) {
+            return $save;
+        }
+
+        $this->bump_dms_config_version('package_saved:' . $packageCode);
+
+        return ['success' => true, 'package' => $catalog[$packageCode], 'catalog' => $catalog];
+    }
+
+    public function delete_dms_addon_package($packageCode): array
+    {
+        $packageCode = strtolower(trim((string) $packageCode));
+        $catalog = $this->get_dms_addon_package_catalog();
+        if ($packageCode === '' || !isset($catalog[$packageCode])) {
+            return ['success' => false, 'message' => 'DMS package not found.'];
+        }
+
+        $usageCount = $this->count_dms_addon_package_usage($packageCode);
+        if ($usageCount > 0) {
+            return ['success' => false, 'message' => 'Cannot delete a DMS package that is already used by tenant add-on subscriptions.', 'usage_count' => $usageCount];
+        }
+
+        unset($catalog[$packageCode]);
+        $result = $this->persist_dms_addon_package_catalog($catalog);
+        if (!empty($result['success'])) {
+            $this->bump_dms_config_version('package_deleted:' . $packageCode);
+        }
+
+        return $result;
+    }
+
+    public function count_dms_addon_package_usage($packageCode): int
+    {
+        $packageCode = strtolower(trim((string) $packageCode));
+        if ($packageCode === '' || !$this->canQueryDmsAddonTable()) {
+            return 0;
+        }
+
+        return (int) $this->landlord_db()
+            ->where('provider', 'khachtot')
+            ->where('service_type', 'dms_runtime')
+            ->where('package_code', $packageCode)
+            ->count_all_results(db_prefix() . 'kt_saas_tenant_addons');
+    }
+
+    private function get_default_dms_addon_package_catalog(): array
+    {
+        return [
+            'dms_mini' => [
+                'id' => 1001,
+                'package_code' => 'dms_mini',
+                'name' => 'DMS Mini',
+                'monthly_price' => 499000,
+                'yearly_price' => 4990000,
+                'user_limit' => 5,
+                'store_limit' => 100,
+                'product_limit' => 500,
+                'checkin_monthly_limit' => 1000,
+                'photo_limit' => 2500,
+                'live_tracking_enabled' => false,
+                'report_export_limit' => 25,
+                'log_retention_months' => 3,
+                'features' => [
+                    'DMS_ENABLED' => true,
+                    'CHECKIN_ENABLED' => true,
+                    'VISIT_ENABLED' => true,
+                    'LIVE_TRACKING_ENABLED' => false,
+                    'ROUTE_ANALYTICS_ENABLED' => true,
+                    'NOTIFICATION_BRIDGE_ENABLED' => true,
+                    'SSO_ENABLED' => true,
+                ],
+            ],
+            'dms_standard' => [
+                'id' => 1002,
+                'package_code' => 'dms_standard',
+                'name' => 'DMS Standard',
+                'monthly_price' => 1490000,
+                'yearly_price' => 14900000,
+                'user_limit' => 20,
+                'store_limit' => 500,
+                'product_limit' => 5000,
+                'checkin_monthly_limit' => 10000,
+                'photo_limit' => 20000,
+                'live_tracking_enabled' => true,
+                'report_export_limit' => 100,
+                'log_retention_months' => 6,
+                'features' => [
+                    'DMS_ENABLED' => true,
+                    'CHECKIN_ENABLED' => true,
+                    'VISIT_ENABLED' => true,
+                    'LIVE_TRACKING_ENABLED' => true,
+                    'ROUTE_ANALYTICS_ENABLED' => true,
+                    'NOTIFICATION_BRIDGE_ENABLED' => true,
+                    'SSO_ENABLED' => true,
+                ],
+            ],
+            'dms_pro' => [
+                'id' => 1003,
+                'package_code' => 'dms_pro',
+                'name' => 'DMS Pro',
+                'monthly_price' => 3490000,
+                'yearly_price' => 34900000,
+                'user_limit' => 50,
+                'store_limit' => 2000,
+                'product_limit' => 20000,
+                'checkin_monthly_limit' => 50000,
+                'photo_limit' => 100000,
+                'live_tracking_enabled' => true,
+                'report_export_limit' => 500,
+                'log_retention_months' => 12,
+                'features' => [
+                    'DMS_ENABLED' => true,
+                    'CHECKIN_ENABLED' => true,
+                    'VISIT_ENABLED' => true,
+                    'LIVE_TRACKING_ENABLED' => true,
+                    'ROUTE_ANALYTICS_ENABLED' => true,
+                    'NOTIFICATION_BRIDGE_ENABLED' => true,
+                    'SSO_ENABLED' => true,
+                ],
+            ],
+            'dms_enterprise' => [
+                'id' => 1004,
+                'package_code' => 'dms_enterprise',
+                'name' => 'DMS Enterprise',
+                'monthly_price' => 0,
+                'yearly_price' => 0,
+                'user_limit' => 0,
+                'store_limit' => 0,
+                'product_limit' => 0,
+                'checkin_monthly_limit' => 0,
+                'photo_limit' => 0,
+                'live_tracking_enabled' => true,
+                'report_export_limit' => 0,
+                'log_retention_months' => 12,
+                'features' => [
+                    'DMS_ENABLED' => true,
+                    'CHECKIN_ENABLED' => true,
+                    'VISIT_ENABLED' => true,
+                    'LIVE_TRACKING_ENABLED' => true,
+                    'ROUTE_ANALYTICS_ENABLED' => true,
+                    'NOTIFICATION_BRIDGE_ENABLED' => true,
+                    'SSO_ENABLED' => true,
+                ],
+            ],
+        ];
+    }
+
+    private function get_dms_package_catalog_option_key(): string
+    {
+        return 'kt_saas_dms_package_catalog_json';
+    }
+
+    public function get_dms_config_version(): int
+    {
+        if (!function_exists('get_option')) {
+            return 1;
+        }
+
+        return max(1, (int) get_option('kt_saas_dms_config_version'));
+    }
+
+    public function bump_dms_config_version(string $reason = ''): int
+    {
+        $version = $this->get_dms_config_version() + 1;
+        if (function_exists('update_option')) {
+            update_option('kt_saas_dms_config_version', (string) $version);
+            update_option('kt_saas_dms_config_generated_at', gmdate('c'));
+        }
+        if (method_exists($this, 'log_activity')) {
+            $this->log_activity('dms.config_version_changed', 'info', [
+                'config_version' => $version,
+                'reason' => trim($reason),
+            ]);
+        }
+
+        return $version;
+    }
+
+    private function persist_dms_addon_package_catalog(array $catalog): array
+    {
+        $normalized = $this->normalize_dms_addon_package_catalog($catalog);
+        $encoded = json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($encoded === false) {
+            return ['success' => false, 'message' => 'Unable to encode DMS package catalog.'];
+        }
+
+        if (!function_exists('get_option') || !function_exists('update_option')) {
+            return ['success' => false, 'message' => 'Perfex option storage is unavailable.'];
+        }
+
+        $optionKey = $this->get_dms_package_catalog_option_key();
+        if ((string) get_option($optionKey) === '') {
+            if (function_exists('add_option')) {
+                add_option($optionKey, $encoded);
+            } else {
+                update_option($optionKey, $encoded);
+            }
+        } else {
+            update_option($optionKey, $encoded);
+        }
+
+        return ['success' => true, 'catalog' => $normalized];
+    }
+
+    private function normalize_dms_addon_package_catalog(array $catalog): array
+    {
+        $normalized = [];
+        foreach ($catalog as $packageCode => $package) {
+            if (!is_array($package)) {
+                continue;
+            }
+
+            $base = is_string($packageCode) ? $packageCode : (string) ($package['package_code'] ?? '');
+            $definition = $this->normalize_dms_addon_package_definition($package, ['package_code' => $base]);
+            $resolvedCode = strtolower(trim((string) ($definition['package_code'] ?? '')));
+            if ($resolvedCode === '') {
+                continue;
+            }
+
+            $normalized[$resolvedCode] = $definition;
+        }
+
+        return $normalized;
+    }
+
+    private function normalize_dms_addon_package_definition(array $package, array $defaults = []): array
+    {
+        $package = array_merge($defaults, $package);
+        $packageCode = strtolower(trim((string) ($package['package_code'] ?? '')));
+        $fallbackCode = strtolower(trim((string) ($defaults['package_code'] ?? '')));
+        if ($packageCode === '') {
+            $packageCode = $fallbackCode;
+        }
+
+        $id = (int) ($package['id'] ?? 0);
+        if ($id <= 0) {
+            $id = abs((int) sprintf('%u', crc32($packageCode !== '' ? $packageCode : uniqid('dms_pkg_', true))));
+        }
+
+        $features = is_array($package['features'] ?? null) ? $package['features'] : [];
+        $featureDefaults = [
+            'DMS_ENABLED' => true,
+            'CHECKIN_ENABLED' => true,
+            'VISIT_ENABLED' => true,
+            'ORDERS_ENABLED' => true,
+            'INVENTORY_ENABLED' => true,
+            'FINANCE_VIEW_ENABLED' => true,
+            'REPORTS_ENABLED' => true,
+            'FIELD_FEEDBACK_ENABLED' => true,
+            'MAP_ENABLED' => true,
+            'LIVE_TRACKING_ENABLED' => !empty($package['live_tracking_enabled']),
+            'ROUTE_ANALYTICS_ENABLED' => true,
+            'NOTIFICATION_BRIDGE_ENABLED' => true,
+            'SSO_ENABLED' => true,
+        ];
+        foreach ($featureDefaults as $featureKey => $defaultValue) {
+            $features[$featureKey] = array_key_exists($featureKey, $features)
+                ? (bool) $features[$featureKey]
+                : (bool) $defaultValue;
+        }
+
+        $allowedBillingPeriods = $package['allowed_billing_periods'] ?? ($defaults['allowed_billing_periods'] ?? ['monthly', 'yearly']);
+        if (is_string($allowedBillingPeriods)) {
+            $allowedBillingPeriods = preg_split('/[\s,|]+/', $allowedBillingPeriods, -1, PREG_SPLIT_NO_EMPTY);
+        }
+        $allowedBillingPeriods = array_values(array_intersect(
+            ['monthly', 'quarterly', 'yearly'],
+            array_map(static fn ($value) => strtolower(trim((string) $value)), (array) $allowedBillingPeriods)
+        ));
+        if (empty($allowedBillingPeriods)) {
+            $allowedBillingPeriods = ['monthly'];
+        }
+        $defaultBillingPeriod = strtolower(trim((string) ($package['default_billing_period'] ?? ($defaults['default_billing_period'] ?? ''))));
+        if (!in_array($defaultBillingPeriod, $allowedBillingPeriods, true)) {
+            $defaultBillingPeriod = $allowedBillingPeriods[0];
+        }
+
+        return [
+            'id' => $id,
+            'package_code' => $packageCode,
+            'name' => trim((string) ($package['name'] ?? strtoupper(str_replace('_', ' ', $packageCode)))),
+            'monthly_price' => max(0, (float) ($package['monthly_price'] ?? 0)),
+            'quarterly_price' => array_key_exists('quarterly_price', $package)
+                ? max(0, (float) ($package['quarterly_price'] ?? 0))
+                : null,
+            'yearly_price' => max(0, (float) ($package['yearly_price'] ?? 0)),
+            'allowed_billing_periods' => $allowedBillingPeriods,
+            'default_billing_period' => $defaultBillingPeriod,
+            'user_limit' => max(0, (int) ($package['user_limit'] ?? 0)),
+            'store_limit' => max(0, (int) ($package['store_limit'] ?? 0)),
+            'product_limit' => max(0, (int) ($package['product_limit'] ?? 0)),
+            'checkin_monthly_limit' => max(0, (int) ($package['checkin_monthly_limit'] ?? 0)),
+            'order_monthly_limit' => max(0, (int) ($package['order_monthly_limit'] ?? 0)),
+            'photo_limit' => max(0, (int) ($package['photo_limit'] ?? 0)),
+            'live_tracking_enabled' => !empty($package['live_tracking_enabled']),
+            'report_export_limit' => max(0, (int) ($package['report_export_limit'] ?? 0)),
+            'log_retention_months' => max(0, (int) ($package['log_retention_months'] ?? 0)),
+            'features' => $features,
+        ];
+    }
+
+    public function get_dms_addon_package($packageCode): array
+    {
+        $normalized = strtolower(trim((string) $packageCode));
+        $catalog = $this->get_dms_addon_package_catalog();
+
+        return $catalog[$normalized] ?? [];
+    }
+
+    public function get_dms_addon_billing_cycle_options(array $package): array
+    {
+        $labels = function_exists('kt_saas_billing_cycles')
+            ? kt_saas_billing_cycles()
+            : [
+                'monthly' => 'Monthly',
+                'quarterly' => 'Quarterly',
+                'yearly' => 'Yearly',
+            ];
+
+        $priceFields = [
+            'monthly' => 'monthly_price',
+            'quarterly' => 'quarterly_price',
+            'yearly' => 'yearly_price',
+        ];
+
+        $allowed = array_values((array) ($package['allowed_billing_periods'] ?? ['monthly', 'yearly']));
+        $options = [];
+        foreach ($priceFields as $cycle => $field) {
+            if (!in_array($cycle, $allowed, true)) {
+                continue;
+            }
+            if ($cycle === 'quarterly' && !array_key_exists($field, $package)) {
+                continue;
+            }
+
+            if (!array_key_exists($field, $package) && !in_array($cycle, ['monthly', 'yearly'], true)) {
+                continue;
+            }
+
+            $options[$cycle] = [
+                'cycle' => $cycle,
+                'label' => (string) ($labels[$cycle] ?? ucfirst($cycle)),
+                'price' => round(max(0, (float) ($package[$field] ?? 0)), 2),
+            ];
+        }
+
+        return $options;
+    }
+
+    public function get_tenant_dms_addon($tenantId, $activeOnly = false): array
+    {
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0 || !$this->canQueryDmsAddonTable()) {
+            return [];
+        }
+
+        $db = $this->landlord_db()
+            ->where('tenant_id', $tenantId)
+            ->where('provider', 'khachtot')
+            ->where('service_type', 'dms_runtime');
+
+        if ($activeOnly) {
+            $db->where('status', 'active');
+        }
+
+        $row = $db->order_by('id', 'desc')
+            ->limit(1)
+            ->get(db_prefix() . 'kt_saas_tenant_addons')
+            ->row_array();
+
+        return is_array($row) ? $row : [];
+    }
+
+    public function resolve_tenant_dms_addon_context($tenantId): array
+    {
+        $tenantId = (int) $tenantId;
+        $addon = $this->get_tenant_dms_addon($tenantId);
+        if (empty($addon)) {
+            return [];
+        }
+
+        if (empty($addon['billing_cycle'])) {
+            $addon['billing_cycle'] = $this->resolve_tenant_dms_addon_billing_cycle(
+                $tenantId,
+                (string) ($addon['package_code'] ?? ''),
+                (int) ($addon['subscription_id'] ?? 0)
+            );
+        }
+
+        $package = $this->get_dms_addon_package((string) ($addon['package_code'] ?? ''));
+
+        return [
+            'addon' => $addon,
+            'package' => $package,
+            'status' => strtolower(trim((string) ($addon['status'] ?? 'none'))),
+            'is_active' => strtolower(trim((string) ($addon['status'] ?? ''))) === 'active',
+            'package_code' => strtolower(trim((string) ($addon['package_code'] ?? ''))),
+        ];
+    }
+
+    private function resolve_tenant_dms_addon_billing_cycle($tenantId, $packageCode = '', $subscriptionId = 0): string
+    {
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0) {
+            return '';
+        }
+
+        $rows = $this->landlord_db()
+            ->select('subscription_id, payload_json, status')
+            ->from(db_prefix() . 'kt_saas_invoices')
+            ->where('tenant_id', $tenantId)
+            ->where('deleted_at IS NULL', null, false)
+            ->order_by('id', 'desc')
+            ->limit(20)
+            ->get()
+            ->result_array();
+
+        $packageCode = strtolower(trim((string) $packageCode));
+        $subscriptionId = (int) $subscriptionId;
+
+        foreach ($rows as $row) {
+            if ($subscriptionId > 0 && (int) ($row['subscription_id'] ?? 0) > 0 && (int) ($row['subscription_id'] ?? 0) !== $subscriptionId) {
+                continue;
+            }
+
+            $payload = json_decode((string) ($row['payload_json'] ?? ''), true);
+            if (!is_array($payload)) {
+                $payload = [];
+            }
+
+            $reason = strtolower(trim((string) ($payload['reason'] ?? ($payload['context']['reason'] ?? ''))));
+            if ($reason !== 'dms_addon_purchase') {
+                continue;
+            }
+
+            $invoicePackageCode = strtolower(trim((string) ($payload['package_code'] ?? ($payload['context']['package_code'] ?? ''))));
+            if ($packageCode !== '' && $invoicePackageCode !== '' && $invoicePackageCode !== $packageCode) {
+                continue;
+            }
+
+            $billingCycle = strtolower(trim((string) ($payload['billing_cycle'] ?? ($payload['billing_summary']['billing_cycle'] ?? ($payload['context']['billing_cycle'] ?? '')))));
+            if (in_array($billingCycle, ['monthly', 'quarterly', 'yearly'], true)) {
+                return $billingCycle;
+            }
+        }
+
+        return '';
+    }
+
+    public function upsert_tenant_dms_addon($tenantId, $packageCode, $status = 'payment_pending', array $options = []): array
+    {
+        $tenantId = (int) $tenantId;
+        $packageCode = strtolower(trim((string) $packageCode));
+        $status = strtolower(trim((string) $status));
+
+        if ($tenantId <= 0) {
+            return ['success' => false, 'message' => 'Tenant id is required.'];
+        }
+
+        $package = $this->get_dms_addon_package($packageCode);
+        if (empty($package)) {
+            return ['success' => false, 'message' => 'Invalid DMS package.'];
+        }
+
+        if (!$this->canQueryDmsAddonTable()) {
+            return ['success' => false, 'message' => 'DMS add-on storage is not available.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $allowedBillingPeriods = array_values((array) ($package['allowed_billing_periods'] ?? ['monthly']));
+        $billingCycle = strtolower(trim((string) ($options['billing_cycle'] ?? ($package['default_billing_period'] ?? 'monthly'))));
+        if (!in_array($billingCycle, $allowedBillingPeriods, true)) {
+            return [
+                'success' => false,
+                'message' => 'Chu kỳ thanh toán không được phép đối với gói DMS đã chọn.',
+                'allowed_billing_periods' => $allowedBillingPeriods,
+            ];
+        }
+        $durationDays = $billingCycle === 'yearly'
+            ? 365
+            : ($billingCycle === 'quarterly' ? 90 : 30);
+        $existing = $this->get_tenant_dms_addon($tenantId);
+        $startsAt = array_key_exists('starts_at', $options)
+            ? $options['starts_at']
+            : (in_array($status, ['active', 'provisioning'], true)
+                ? ($existing['starts_at'] ?? $now)
+                : null);
+        $endsAt = array_key_exists('ends_at', $options)
+            ? $options['ends_at']
+            : ($startsAt ? date('Y-m-d H:i:s', strtotime('+' . $durationDays . ' days', strtotime((string) $startsAt))) : null);
+        $notes = trim((string) ($options['notes'] ?? ($existing['notes'] ?? 'Created from tenant marketplace DMS package selection.')));
+        $payload = [
+            'tenant_id' => $tenantId,
+            'subscription_id' => array_key_exists('subscription_id', $options) ? ($options['subscription_id'] ?: null) : ($existing['subscription_id'] ?? null),
+            'order_id' => array_key_exists('order_id', $options) ? ($options['order_id'] ?: null) : ($existing['order_id'] ?? null),
+            'package_id' => array_key_exists('package_id', $options)
+                ? ($options['package_id'] ?: (int) ($package['id'] ?? 0))
+                : ((int) ($existing['package_id'] ?? 0) > 0 ? (int) $existing['package_id'] : (int) ($package['id'] ?? 0)),
+            'provider' => 'khachtot',
+            'service_type' => 'dms_runtime',
+            'package_code' => $packageCode,
+            'quantity_purchased' => 1,
+            'quantity_used' => 0,
+            'quantity_remaining' => 1,
+            'starts_at' => $startsAt,
+            'ends_at' => $endsAt,
+            'status' => $status,
+            'provider_account_id' => array_key_exists('provider_account_id', $options) ? ($options['provider_account_id'] ?: null) : ($existing['provider_account_id'] ?? null),
+            'provider_order_code' => array_key_exists('provider_order_code', $options) ? ($options['provider_order_code'] ?: null) : ($existing['provider_order_code'] ?? null),
+            'provider_status' => $status,
+            'provisioning_job_id' => array_key_exists('provisioning_job_id', $options) ? ($options['provisioning_job_id'] ?: null) : ($existing['provisioning_job_id'] ?? null),
+            'notes' => $notes,
+            'updated_at' => $now,
+        ];
+
+        if (!empty($existing['id'])) {
+            $this->landlord_db()
+                ->where('id', (int) $existing['id'])
+                ->update(db_prefix() . 'kt_saas_tenant_addons', $payload);
+            $addonId = (int) $existing['id'];
+        } else {
+            $payload['created_at'] = $now;
+            $this->landlord_db()->insert(db_prefix() . 'kt_saas_tenant_addons', $payload);
+            $addonId = (int) $this->landlord_db()->insert_id();
+        }
+
+        return [
+            'success' => $addonId > 0,
+            'addon_id' => $addonId,
+            'status' => $status,
+            'package' => $package,
+            'package_code' => $packageCode,
+        ];
+    }
+
+    public function get_tenant_dms_addon_invoice($tenantId, $packageCode = null, array $statuses = ['draft', 'issued', 'pending_payment', 'overdue'])
+    {
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0) {
+            return [];
+        }
+
+        $rows = $this->landlord_db()
+            ->where('tenant_id', $tenantId)
+            ->where('deleted_at IS NULL', null, false)
+            ->where_in('status', array_values(array_unique(array_filter(array_map('strval', $statuses)))))
+            ->order_by('id', 'desc')
+            ->get(db_prefix() . 'kt_saas_invoices')
+            ->result_array();
+
+        $packageCode = strtolower(trim((string) $packageCode));
+        foreach ($rows as $row) {
+            $payload = json_decode((string) ($row['payload_json'] ?? ''), true);
+            if (!is_array($payload)) {
+                $payload = [];
+            }
+
+            $reason = strtolower(trim((string) ($payload['reason'] ?? ($payload['context']['reason'] ?? ''))));
+            if ($reason !== 'dms_addon_purchase') {
+                continue;
+            }
+
+            $payloadPackageCode = strtolower(trim((string) ($payload['package_code'] ?? ($payload['context']['package_code'] ?? ''))));
+            if ($packageCode !== '' && $payloadPackageCode !== $packageCode) {
+                continue;
+            }
+
+            return $row;
+        }
+
+        return [];
+    }
+
+    public function ensure_dms_commercial_order_schema(): bool
+    {
+        $db = $this->landlord_db();
+        $ordersTable = db_prefix() . 'kt_saas_dms_orders';
+        $eventsTable = db_prefix() . 'kt_saas_dms_order_events';
+        if (!$db->table_exists($ordersTable)) {
+            $db->query("CREATE TABLE IF NOT EXISTS `{$ordersTable}` (
+                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                `tenant_id` BIGINT UNSIGNED NOT NULL,
+                `crm_company_id` BIGINT UNSIGNED NULL,
+                `tenant_slug` VARCHAR(191) NOT NULL,
+                `package_code` VARCHAR(120) NOT NULL,
+                `package_name` VARCHAR(191) NOT NULL,
+                `billing_cycle` VARCHAR(30) NOT NULL,
+                `amount` DECIMAL(15,2) NOT NULL DEFAULT 0,
+                `currency` VARCHAR(10) NOT NULL DEFAULT 'VND',
+                `invoice_id` BIGINT UNSIGNED NULL,
+                `payment_provider` VARCHAR(50) NULL,
+                `payment_reference` VARCHAR(128) NULL,
+                `payment_url` TEXT NULL,
+                `status` VARCHAR(40) NOT NULL DEFAULT 'draft',
+                `payment_status` VARCHAR(40) NOT NULL DEFAULT 'payment_pending',
+                `verification_status` VARCHAR(40) NOT NULL DEFAULT 'pending',
+                `subscription_status` VARCHAR(40) NOT NULL DEFAULT 'pending',
+                `provisioning_status` VARCHAR(40) NOT NULL DEFAULT 'not_started',
+                `workspace_status` VARCHAR(40) NOT NULL DEFAULT 'not_ready',
+                `provision_job_id` BIGINT UNSIGNED NULL,
+                `last_payment_checked_at` DATETIME NULL,
+                `blocked_reason` TEXT NULL,
+                `metadata_json` LONGTEXT NULL,
+                `created_by` INT NULL,
+                `created_at` DATETIME NOT NULL,
+                `updated_at` DATETIME NOT NULL,
+                `activated_at` DATETIME NULL,
+                `cancelled_at` DATETIME NULL,
+                `idempotency_key` VARCHAR(128) NOT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `dms_order_idempotency_unique` (`idempotency_key`),
+                UNIQUE KEY `dms_order_invoice_unique` (`invoice_id`),
+                KEY `dms_order_tenant_idx` (`tenant_id`),
+                KEY `dms_order_status_idx` (`status`),
+                KEY `dms_order_payment_idx` (`payment_status`, `verification_status`),
+                KEY `dms_order_provision_idx` (`provisioning_status`, `workspace_status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        }
+        if (!$db->table_exists($eventsTable)) {
+            $db->query("CREATE TABLE IF NOT EXISTS `{$eventsTable}` (
+                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                `order_id` BIGINT UNSIGNED NOT NULL,
+                `tenant_id` BIGINT UNSIGNED NOT NULL,
+                `event_key` VARCHAR(80) NOT NULL,
+                `event_status` VARCHAR(40) NULL,
+                `message` VARCHAR(255) NOT NULL,
+                `actor_type` VARCHAR(30) NOT NULL DEFAULT 'system',
+                `actor_id` BIGINT NULL,
+                `dedupe_key` VARCHAR(160) NOT NULL,
+                `context_json` LONGTEXT NULL,
+                `created_at` DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `dms_order_event_dedupe_unique` (`order_id`, `dedupe_key`),
+                KEY `dms_order_event_order_idx` (`order_id`),
+                KEY `dms_order_event_tenant_idx` (`tenant_id`),
+                KEY `dms_order_event_created_idx` (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        }
+
+        return $db->table_exists($ordersTable) && $db->table_exists($eventsTable);
+    }
+
+    public function append_dms_order_event($orderId, $eventKey, $message, array $context = [], $dedupeKey = '', $eventStatus = ''): bool
+    {
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return false;
+        }
+        $order = $this->landlord_db()
+            ->where('id', (int) $orderId)
+            ->get(db_prefix() . 'kt_saas_dms_orders')
+            ->row_array();
+        if (!$order) {
+            return false;
+        }
+        $dedupeKey = trim((string) $dedupeKey);
+        if ($dedupeKey === '') {
+            $dedupeKey = trim((string) $eventKey) . '|' . sha1(json_encode($context));
+        }
+        $actorId = function_exists('get_staff_user_id') ? (int) get_staff_user_id() : 0;
+        $payload = [
+            'order_id' => (int) $orderId,
+            'tenant_id' => (int) ($order['tenant_id'] ?? 0),
+            'event_key' => trim((string) $eventKey),
+            'event_status' => trim((string) $eventStatus) ?: null,
+            'message' => mb_substr(trim((string) $message), 0, 255),
+            'actor_type' => $actorId > 0 ? 'staff' : 'system',
+            'actor_id' => $actorId > 0 ? $actorId : null,
+            'dedupe_key' => mb_substr($dedupeKey, 0, 160),
+            'context_json' => json_encode($context, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        $db = $this->landlord_db();
+        $exists = $db->where('order_id', (int) $orderId)
+            ->where('dedupe_key', $payload['dedupe_key'])
+            ->count_all_results(db_prefix() . 'kt_saas_dms_order_events') > 0;
+        if ($exists) {
+            return true;
+        }
+
+        return (bool) $db->insert(db_prefix() . 'kt_saas_dms_order_events', $payload);
+    }
+
+    public function update_dms_commercial_order($orderId, array $payload, $eventKey = '', $eventMessage = '', array $eventContext = []): bool
+    {
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return false;
+        }
+        $allowed = [
+            'invoice_id', 'payment_provider', 'payment_reference', 'payment_url', 'status',
+            'payment_status', 'verification_status', 'subscription_status', 'provisioning_status',
+            'workspace_status', 'provision_job_id', 'last_payment_checked_at', 'blocked_reason',
+            'metadata_json', 'activated_at', 'cancelled_at',
+        ];
+        $update = array_intersect_key($payload, array_flip($allowed));
+        $update['updated_at'] = date('Y-m-d H:i:s');
+        $ok = (bool) $this->landlord_db()
+            ->where('id', (int) $orderId)
+            ->update(db_prefix() . 'kt_saas_dms_orders', $update);
+        if ($ok && trim((string) $eventKey) !== '') {
+            $this->append_dms_order_event(
+                (int) $orderId,
+                (string) $eventKey,
+                (string) $eventMessage,
+                $eventContext,
+                (string) $eventKey . '|' . ($eventContext['dedupe'] ?? sha1(json_encode($update))),
+                (string) ($update['status'] ?? '')
+            );
+        }
+
+        return $ok;
+    }
+
+    public function get_pending_dms_commercial_order($tenantId): array
+    {
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return [];
+        }
+        $row = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where_in('status', ['draft', 'payment_pending', 'payment_submitted', 'payment_verified', 'subscription_active', 'provisioning_pending', 'provisioning_running'])
+            ->order_by('id', 'desc')
+            ->limit(1)
+            ->get(db_prefix() . 'kt_saas_dms_orders')
+            ->row_array();
+
+        return is_array($row) ? $row : [];
+    }
+
+    public function create_dms_commercial_order(array $tenant, array $package, $billingCycle, $amount, array $options = []): array
+    {
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return ['success' => false, 'message' => 'Chưa thể khởi tạo sổ theo dõi đơn DMS.'];
+        }
+        $tenantId = (int) ($tenant['id'] ?? 0);
+        $packageCode = strtolower(trim((string) ($package['package_code'] ?? '')));
+        $billingCycle = strtolower(trim((string) $billingCycle));
+        $attempt = (int) $this->landlord_db()
+            ->where('tenant_id', $tenantId)
+            ->where('package_code', $packageCode)
+            ->where('billing_cycle', $billingCycle)
+            ->count_all_results(db_prefix() . 'kt_saas_dms_orders') + 1;
+        $idempotencyKey = hash('sha256', implode('|', ['dms-order-v1', $tenantId, $packageCode, $billingCycle, $attempt]));
+        $now = date('Y-m-d H:i:s');
+        $payload = [
+            'tenant_id' => $tenantId,
+            'crm_company_id' => !empty($tenant['landlord_client_id']) ? (int) $tenant['landlord_client_id'] : null,
+            'tenant_slug' => (string) ($tenant['subdomain'] ?? ''),
+            'package_code' => $packageCode,
+            'package_name' => (string) ($package['name'] ?? strtoupper($packageCode)),
+            'billing_cycle' => $billingCycle,
+            'amount' => round((float) $amount, 2),
+            'currency' => 'VND',
+            'payment_provider' => (string) ($options['payment_provider'] ?? 'sepay'),
+            'status' => 'draft',
+            'payment_status' => 'payment_pending',
+            'verification_status' => 'pending',
+            'subscription_status' => 'pending',
+            'provisioning_status' => 'not_started',
+            'workspace_status' => 'not_ready',
+            'metadata_json' => json_encode(['source' => (string) ($options['source'] ?? 'tenant_marketplace')], JSON_UNESCAPED_UNICODE),
+            'created_by' => function_exists('get_staff_user_id') ? (get_staff_user_id() ?: null) : null,
+            'created_at' => $now,
+            'updated_at' => $now,
+            'idempotency_key' => $idempotencyKey,
+        ];
+        $db = $this->landlord_db();
+        $db->insert(db_prefix() . 'kt_saas_dms_orders', $payload);
+        $orderId = (int) $db->insert_id();
+        if ($orderId <= 0) {
+            return ['success' => false, 'message' => 'Chưa thể tạo đơn DMS.'];
+        }
+        $this->append_dms_order_event($orderId, 'package_selected', 'Doanh nghiệp đã chọn ' . $payload['package_name'] . '.', [
+            'package_code' => $packageCode,
+            'billing_cycle' => $billingCycle,
+        ], 'package_selected');
+        $this->append_dms_order_event($orderId, 'order_created', 'Đơn DMS đã được tạo.', [], 'order_created');
+
+        return ['success' => true, 'order_id' => $orderId, 'order' => $this->get_dms_commercial_order($orderId)];
+    }
+
+    public function get_dms_order_events($orderId): array
+    {
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return [];
+        }
+        return $this->landlord_db()
+            ->where('order_id', (int) $orderId)
+            ->order_by('id', 'asc')
+            ->get(db_prefix() . 'kt_saas_dms_order_events')
+            ->result_array();
+    }
+
+    public function get_dms_commercial_order($orderId, $tenantId = null): array
+    {
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return [];
+        }
+        $db = $this->landlord_db();
+        $db->where('id', (int) $orderId);
+        if ($tenantId !== null) {
+            $db->where('tenant_id', (int) $tenantId);
+        }
+        $order = $db->get(db_prefix() . 'kt_saas_dms_orders')->row_array();
+        if (!$order) {
+            return [];
+        }
+
+        return $this->enrich_dms_commercial_order($order);
+    }
+
+    public function get_dms_commercial_order_by_invoice($invoiceId): array
+    {
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return [];
+        }
+        $row = $this->landlord_db()
+            ->where('invoice_id', (int) $invoiceId)
+            ->limit(1)
+            ->get(db_prefix() . 'kt_saas_dms_orders')
+            ->row_array();
+        return $row ? $this->enrich_dms_commercial_order($row) : [];
+    }
+
+    public function get_latest_dms_commercial_order($tenantId): array
+    {
+        $this->backfill_dms_commercial_orders((int) $tenantId);
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return [];
+        }
+        $row = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->order_by('id', 'desc')
+            ->limit(1)
+            ->get(db_prefix() . 'kt_saas_dms_orders')
+            ->row_array();
+
+        return $row ? $this->enrich_dms_commercial_order($row) : [];
+    }
+
+    public function get_dms_commercial_orders(array $filters = []): array
+    {
+        $this->backfill_dms_commercial_orders();
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return [];
+        }
+        $db = $this->landlord_db()
+            ->select('o.*, t.company_name, t.tenant_code')
+            ->from(db_prefix() . 'kt_saas_dms_orders o')
+            ->join(db_prefix() . 'kt_saas_tenants t', 't.id = o.tenant_id', 'left');
+        foreach (['status', 'payment_status', 'verification_status', 'provisioning_status', 'workspace_status', 'package_code'] as $field) {
+            if (trim((string) ($filters[$field] ?? '')) !== '') {
+                $db->where('o.' . $field, trim((string) $filters[$field]));
+            }
+        }
+        if ((int) ($filters['tenant_id'] ?? 0) > 0) {
+            $db->where('o.tenant_id', (int) $filters['tenant_id']);
+        }
+        $rows = $db->order_by('o.id', 'desc')->limit(500)->get()->result_array();
+        return array_map(function ($row) {
+            return $this->enrich_dms_commercial_order($row);
+        }, $rows);
+    }
+
+    public function backfill_dms_commercial_orders($tenantId = null): int
+    {
+        if (!$this->ensure_dms_commercial_order_schema()) {
+            return 0;
+        }
+        $db = $this->landlord_db();
+        $db->from(db_prefix() . 'kt_saas_invoices')->where('deleted_at IS NULL', null, false);
+        if ($tenantId !== null) {
+            $db->where('tenant_id', (int) $tenantId);
+        }
+        $invoices = $db->order_by('id', 'asc')->get()->result_array();
+        $created = 0;
+        foreach ($invoices as $invoice) {
+            $payload = json_decode((string) ($invoice['payload_json'] ?? ''), true);
+            if (!is_array($payload) || strtolower((string) ($payload['reason'] ?? '')) !== 'dms_addon_purchase') {
+                continue;
+            }
+            $exists = $this->landlord_db()->where('invoice_id', (int) $invoice['id'])->count_all_results(db_prefix() . 'kt_saas_dms_orders') > 0;
+            if ($exists) {
+                continue;
+            }
+            $tenant = $this->get_tenant((int) $invoice['tenant_id']);
+            $package = $this->get_dms_addon_package((string) ($payload['package_code'] ?? ''));
+            if (!$tenant || !$package) {
+                continue;
+            }
+            $invoicePaid = (string) ($invoice['status'] ?? '') === 'paid';
+            $now = date('Y-m-d H:i:s');
+            $record = [
+                'tenant_id' => (int) $tenant['id'],
+                'crm_company_id' => !empty($tenant['landlord_client_id']) ? (int) $tenant['landlord_client_id'] : null,
+                'tenant_slug' => (string) ($tenant['subdomain'] ?? ''),
+                'package_code' => (string) ($payload['package_code'] ?? ''),
+                'package_name' => (string) ($payload['package_name'] ?? ($package['name'] ?? 'DMS')),
+                'billing_cycle' => (string) ($payload['billing_cycle'] ?? 'monthly'),
+                'amount' => (float) ($invoice['grand_total'] ?? 0),
+                'currency' => (string) ($invoice['currency'] ?? 'VND'),
+                'invoice_id' => (int) $invoice['id'],
+                'payment_provider' => (string) ($invoice['gateway'] ?? 'sepay'),
+                'payment_reference' => (string) ($invoice['invoice_number'] ?? ''),
+                'status' => $invoicePaid ? 'workspace_ready' : 'payment_pending',
+                'payment_status' => $invoicePaid ? 'paid' : 'payment_pending',
+                'verification_status' => $invoicePaid ? 'verified' : 'pending',
+                'subscription_status' => $invoicePaid ? 'active' : 'pending',
+                'provisioning_status' => $invoicePaid ? 'workspace_ready' : 'not_started',
+                'workspace_status' => $invoicePaid ? 'ready' : 'not_ready',
+                'created_by' => $invoice['created_by'] ?? null,
+                'created_at' => (string) ($invoice['created_at'] ?? $now),
+                'updated_at' => (string) ($invoice['updated_at'] ?? $now),
+                'activated_at' => $invoicePaid ? (string) ($invoice['paid_at'] ?? $now) : null,
+                'idempotency_key' => hash('sha256', 'legacy-dms-invoice|' . (int) $invoice['id']),
+            ];
+            $this->landlord_db()->insert(db_prefix() . 'kt_saas_dms_orders', $record);
+            $orderId = (int) $this->landlord_db()->insert_id();
+            if ($orderId > 0) {
+                $created++;
+                $this->append_dms_order_event($orderId, 'order_created', 'Đơn DMS được khôi phục từ hóa đơn hiện có.', [], 'legacy_order_created');
+                $this->append_dms_order_event($orderId, 'invoice_created', 'Hóa đơn DMS đã được liên kết.', ['invoice_id' => (int) $invoice['id']], 'legacy_invoice_created');
+                if ($invoicePaid) {
+                    $this->append_dms_order_event($orderId, 'payment_verified', 'Thanh toán đã được xác minh.', [], 'legacy_payment_verified');
+                    $this->append_dms_order_event($orderId, 'subscription_activated', 'Gói DMS đã được kích hoạt.', [], 'legacy_subscription_activated');
+                    $this->append_dms_order_event($orderId, 'workspace_provision_done', 'Workspace DMS đã sẵn sàng.', [], 'legacy_workspace_ready');
+                }
+            }
+        }
+
+        return $created;
+    }
+
+    private function enrich_dms_commercial_order(array $order): array
+    {
+        $invoiceId = (int) ($order['invoice_id'] ?? 0);
+        $invoice = $invoiceId > 0 ? ($this->get_invoice($invoiceId) ?: []) : [];
+        $payment = [];
+        if ($invoiceId > 0 && $this->landlord_db()->table_exists(db_prefix() . 'kt_saas_payments')) {
+            $payment = $this->landlord_db()
+                ->where('invoice_id', $invoiceId)
+                ->where('deleted_at IS NULL', null, false)
+                ->order_by('id', 'desc')
+                ->limit(1)
+                ->get(db_prefix() . 'kt_saas_payments')
+                ->row_array() ?: [];
+        }
+        $paymentRequest = [];
+        if ($invoiceId > 0 && $this->landlord_db()->table_exists(db_prefix() . 'kt_sepay_payment_requests')) {
+            $paymentRequest = $this->landlord_db()
+                ->select('id, tenant_id, invoice_id, amount, currency, reference_code, status, paid_amount, expires_at, processed_at, created_at, updated_at')
+                ->where('invoice_id', $invoiceId)
+                ->order_by('id', 'desc')
+                ->limit(1)
+                ->get(db_prefix() . 'kt_sepay_payment_requests')
+                ->row_array() ?: [];
+            $resolvedPaymentStatus = strtolower(trim((string) ($invoice['status'] ?? ''))) === 'paid'
+                ? 'paid'
+                : (string) ($paymentRequest['status'] ?? $order['payment_status']);
+            $paymentUpdate = [];
+            if (!empty($paymentRequest['reference_code']) && (string) ($order['payment_reference'] ?? '') !== (string) $paymentRequest['reference_code']) {
+                $paymentUpdate['payment_reference'] = (string) $paymentRequest['reference_code'];
+            }
+            if ($resolvedPaymentStatus !== '' && (string) ($order['payment_status'] ?? '') !== $resolvedPaymentStatus) {
+                $paymentUpdate['payment_status'] = $resolvedPaymentStatus;
+            }
+            if (!empty($paymentUpdate)) {
+                $this->update_dms_commercial_order((int) $order['id'], $paymentUpdate);
+                $order = array_merge($order, $paymentUpdate);
+            }
+        }
+        $job = [];
+        if (!empty($order['provision_job_id'])) {
+            $job = $this->landlord_db()->where('id', (int) $order['provision_job_id'])->get(db_prefix() . 'kt_saas_provision_jobs')->row_array() ?: [];
+        }
+        $jobStatus = strtolower(trim((string) ($job['status'] ?? '')));
+        if ($jobStatus !== '') {
+            $state = [];
+            if ($jobStatus === 'queued') {
+                $state = ['status' => 'provisioning_pending', 'provisioning_status' => 'provisioning_pending'];
+            } elseif ($jobStatus === 'running') {
+                $state = ['status' => 'provisioning_running', 'provisioning_status' => 'provisioning_running'];
+            } elseif ($jobStatus === 'done') {
+                $state = ['status' => 'workspace_ready', 'provisioning_status' => 'workspace_ready', 'workspace_status' => 'ready', 'blocked_reason' => null];
+            } elseif ($jobStatus === 'failed') {
+                $state = ['status' => 'blocked', 'provisioning_status' => 'failed', 'workspace_status' => 'blocked', 'blocked_reason' => (string) ($job['error_message'] ?? 'Provisioning failed')];
+            }
+            $changed = false;
+            foreach ($state as $key => $value) {
+                if (($order[$key] ?? null) !== $value) {
+                    $changed = true;
+                    break;
+                }
+            }
+            if ($changed && !empty($state)) {
+                $event = $jobStatus === 'done' ? 'workspace_provision_done' : ($jobStatus === 'failed' ? 'failed' : 'workspace_provision_' . $jobStatus);
+                $message = $jobStatus === 'done' ? 'Workspace DMS đã sẵn sàng.' : ($jobStatus === 'failed' ? 'Khởi tạo workspace cần được kiểm tra.' : 'Workspace DMS đang được khởi tạo.');
+                $this->update_dms_commercial_order((int) $order['id'], $state, $event, $message, ['dedupe' => 'job|' . (int) ($job['id'] ?? 0) . '|' . $jobStatus]);
+                $order = array_merge($order, $state);
+            }
+        }
+        $order['invoice'] = $invoice;
+        $order['payment'] = $payment;
+        $order['payment_request'] = $paymentRequest;
+        $order['provision_job'] = $job;
+        $order['events'] = $this->get_dms_order_events((int) ($order['id'] ?? 0));
+        $order['tenant'] = $this->get_tenant((int) ($order['tenant_id'] ?? 0)) ?: [];
+        return $order;
+    }
+
+    public function dms_order_status_label($status): string
+    {
+        $labels = [
+            'draft' => 'Đang tạo đơn', 'payment_pending' => 'Chờ thanh toán',
+            'payment_submitted' => 'Đang xác minh thanh toán', 'pending' => 'Đang chờ',
+            'verified' => 'Đã xác minh', 'paid' => 'Đã thanh toán',
+            'payment_verified' => 'Đã xác minh thanh toán', 'payment_failed' => 'Thanh toán cần kiểm tra',
+            'subscription_active' => 'Gói DMS đã kích hoạt', 'active' => 'Đang hoạt động',
+            'provisioning_pending' => 'Chờ kích hoạt workspace', 'provisioning_running' => 'Đang kích hoạt DMS',
+            'workspace_ready' => 'Workspace DMS đã sẵn sàng', 'ready' => 'Sẵn sàng',
+            'not_ready' => 'Chưa sẵn sàng', 'not_started' => 'Chưa bắt đầu',
+            'queued' => 'Đang chờ', 'running' => 'Đang xử lý', 'done' => 'Hoàn tất',
+            'blocked' => 'Cần kiểm tra thủ công', 'failed' => 'Cần kiểm tra',
+            'cancelled' => 'Đã hủy', 'suspended' => 'Tạm ngưng',
+        ];
+        $normalized = strtolower(trim((string) $status));
+        return $labels[$normalized] ?? 'Chưa xác định';
+    }
+
+    public function get_dms_runtime_process_health($tenantId = null): array
+    {
+        $db = $this->landlord_db();
+        $tenantId = $tenantId !== null ? (int) $tenantId : null;
+        $cronTimestamp = (int) get_option('last_cron_run');
+        $cronAge = $cronTimestamp > 0 ? time() - $cronTimestamp : null;
+        $provision = ['queued' => 0, 'running' => 0, 'failed' => 0, 'done' => 0, 'latest' => []];
+        foreach (['queued', 'running', 'failed', 'done'] as $status) {
+            $db->from(db_prefix() . 'kt_saas_provision_jobs')->where('status', $status);
+            if ($tenantId) {
+                $db->where('tenant_id', $tenantId);
+            }
+            $provision[$status] = (int) $db->count_all_results();
+        }
+        $db->from(db_prefix() . 'kt_saas_provision_jobs');
+        if ($tenantId) {
+            $db->where('tenant_id', $tenantId);
+        }
+        $provision['latest'] = $db->order_by('id', 'desc')->limit(1)->get()->row_array() ?: [];
+
+        $sync = ['queued' => 0, 'running' => 0, 'failed' => 0, 'done' => 0, 'latest' => []];
+        if ($db->table_exists(db_prefix() . 'kt_integration_sync_jobs')) {
+            foreach (['queued', 'running', 'failed', 'done'] as $status) {
+                $db->from(db_prefix() . 'kt_integration_sync_jobs')->where('status', $status);
+                if ($tenantId) {
+                    $db->where('tenant_id', $tenantId);
+                }
+                $sync[$status] = (int) $db->count_all_results();
+            }
+            $db->from(db_prefix() . 'kt_integration_sync_jobs');
+            if ($tenantId) {
+                $db->where('tenant_id', $tenantId);
+            }
+            $sync['latest'] = $db->order_by('id', 'desc')->limit(1)->get()->row_array() ?: [];
+        }
+
+        $latestStarted = strtotime((string) ($provision['latest']['started_at'] ?? '')) ?: 0;
+        $staleLock = (string) ($provision['latest']['status'] ?? '') === 'running' && $latestStarted > 0 && $latestStarted < strtotime('-15 minutes');
+        return [
+            'cron' => [
+                'status' => $cronAge !== null && $cronAge <= 600 ? 'running' : 'not_running',
+                'last_run_at' => $cronTimestamp > 0 ? date('Y-m-d H:i:s', $cronTimestamp) : null,
+                'age_seconds' => $cronAge,
+            ],
+            'provision' => $provision,
+            'staff_sync' => $sync,
+            'stale_lock' => $staleLock,
+            'checked_at' => date('Y-m-d H:i:s'),
+        ];
+    }
+
+    public function cancel_dms_commercial_order($orderId, $tenantId = null, $reason = ''): array
+    {
+        $order = $this->get_dms_commercial_order((int) $orderId, $tenantId !== null ? (int) $tenantId : null);
+        if (!$order) {
+            return ['success' => false, 'message' => 'Không tìm thấy đơn DMS.'];
+        }
+        if (in_array((string) ($order['payment_status'] ?? ''), ['paid', 'verified'], true)
+            || in_array((string) ($order['subscription_status'] ?? ''), ['active'], true)) {
+            return ['success' => false, 'message' => 'Đơn đã thanh toán hoặc kích hoạt không thể hủy trực tiếp.'];
+        }
+        $invoiceId = (int) ($order['invoice_id'] ?? 0);
+        if ($invoiceId > 0) {
+            $invoice = $this->get_invoice($invoiceId);
+            if ($invoice && !in_array((string) ($invoice['status'] ?? ''), ['paid', 'cancelled'], true)) {
+                $this->update_invoice($invoiceId, ['status' => 'cancelled', 'updated_at' => date('Y-m-d H:i:s')]);
+            }
+        }
+        $addon = $this->get_tenant_dms_addon((int) $order['tenant_id']);
+        if ($addon && (string) ($addon['provider_order_code'] ?? '') === (string) ($order['payment_reference'] ?? '')) {
+            $this->landlord_db()->where('id', (int) $addon['id'])->update(db_prefix() . 'kt_saas_tenant_addons', [
+                'status' => 'cancelled',
+                'provider_status' => 'cancelled',
+                'notes' => trim((string) $reason) ?: 'DMS order cancelled before payment.',
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+        $this->update_dms_commercial_order((int) $order['id'], [
+            'status' => 'cancelled',
+            'payment_status' => 'cancelled',
+            'verification_status' => 'cancelled',
+            'subscription_status' => 'cancelled',
+            'provisioning_status' => 'cancelled',
+            'workspace_status' => 'not_ready',
+            'cancelled_at' => date('Y-m-d H:i:s'),
+            'blocked_reason' => trim((string) $reason) ?: null,
+        ], 'cancelled', 'Đơn DMS đã được hủy.', ['dedupe' => 'cancelled']);
+
+        return ['success' => true, 'order' => $this->get_dms_commercial_order((int) $order['id'])];
+    }
+
+    public function recheck_dms_commercial_order_payment($orderId): array
+    {
+        $order = $this->get_dms_commercial_order((int) $orderId);
+        if (!$order) {
+            return ['success' => false, 'message' => 'Không tìm thấy đơn DMS.'];
+        }
+        $invoice = (array) ($order['invoice'] ?? []);
+        $now = date('Y-m-d H:i:s');
+        $this->update_dms_commercial_order((int) $order['id'], ['last_payment_checked_at' => $now]);
+        if ((string) ($invoice['status'] ?? '') !== 'paid') {
+            $this->append_dms_order_event((int) $order['id'], 'payment_rechecked', 'Đã kiểm tra lại thanh toán; chưa tìm thấy giao dịch phù hợp.', [], 'payment_rechecked|' . date('YmdH'));
+            return ['success' => true, 'verified' => false, 'message' => 'Chưa tìm thấy thanh toán đã xác minh.'];
+        }
+        $payment = (array) ($order['payment'] ?? []);
+        $activation = $this->activate_tenant_dms_addon_from_invoice($invoice, [
+            'payment_reference' => (string) ($payment['payment_reference'] ?? $order['payment_reference'] ?? ''),
+            'gateway' => (string) ($payment['gateway'] ?? $order['payment_provider'] ?? 'sepay'),
+        ]);
+        return [
+            'success' => !empty($activation['success']),
+            'verified' => !empty($activation['success']),
+            'message' => !empty($activation['success']) ? 'Thanh toán đã được xác minh và tiến trình kích hoạt đã được cập nhật.' : (string) ($activation['message'] ?? 'Chưa thể cập nhật kích hoạt.'),
+        ];
+    }
+
+    public function retry_dms_commercial_order_provisioning($orderId): array
+    {
+        $order = $this->get_dms_commercial_order((int) $orderId);
+        if (!$order) {
+            return ['success' => false, 'message' => 'Không tìm thấy đơn DMS.'];
+        }
+        if ((string) ($order['subscription_status'] ?? '') !== 'active') {
+            return ['success' => false, 'message' => 'Chỉ có thể khởi tạo workspace sau khi gói DMS đã được kích hoạt.'];
+        }
+        $jobs = $this->get_tenant_provision_jobs((int) $order['tenant_id'], ['install_salesflow_dms'], 10);
+        foreach ($jobs as $job) {
+            if (in_array((string) ($job['status'] ?? ''), ['queued', 'running'], true)) {
+                return ['success' => true, 'reused' => true, 'message' => 'Đã có tiến trình khởi tạo đang chạy.', 'job_id' => (int) $job['id']];
+            }
+        }
+        $tenant = $this->get_tenant((int) $order['tenant_id']);
+        $jobId = (int) $this->create_provision_job((int) $order['tenant_id'], 'install_salesflow_dms', [
+            'tenant_id' => (int) $order['tenant_id'],
+            'tenant_code' => (string) ($tenant['tenant_code'] ?? ''),
+            'app_slug' => 'salesflow-dms',
+            'source' => 'dms_commercial_order_retry',
+            'package_code' => (string) $order['package_code'],
+            'invoice_id' => (int) ($order['invoice_id'] ?? 0),
+            'dms_order_id' => (int) $order['id'],
+        ]);
+        if ($jobId <= 0) {
+            return ['success' => false, 'message' => 'Chưa thể tạo tiến trình khởi tạo workspace.'];
+        }
+        $this->update_dms_commercial_order((int) $order['id'], [
+            'status' => 'provisioning_pending',
+            'provisioning_status' => 'provisioning_pending',
+            'workspace_status' => 'not_ready',
+            'provision_job_id' => $jobId,
+            'blocked_reason' => null,
+        ], 'workspace_provision_started', 'Đã yêu cầu khởi tạo lại workspace DMS.', ['dedupe' => 'retry|' . $jobId]);
+        return ['success' => true, 'job_id' => $jobId, 'message' => 'Đã xếp hàng khởi tạo lại workspace DMS.'];
+    }
+
+    public function create_or_refresh_tenant_dms_addon_invoice($tenantId, $packageCode, $billingCycle = 'monthly', array $options = []): array
+    {
+        $tenantId = (int) $tenantId;
+        $packageCode = strtolower(trim((string) $packageCode));
+        $billingCycle = strtolower(trim((string) $billingCycle));
+        if (!in_array($billingCycle, ['monthly', 'quarterly', 'yearly'], true)) {
+            return ['success' => false, 'message' => 'Chu kỳ thanh toán không hợp lệ.'];
+        }
+
+        $tenant = $this->get_tenant($tenantId);
+        if (!$tenant) {
+            return ['success' => false, 'message' => 'Tenant not found.'];
+        }
+
+        $subscription = $this->get_tenant_subscription_profile($tenantId);
+        if (empty($subscription['id'])) {
+            return ['success' => false, 'message' => 'CRM subscription is required before purchasing the DMS add-on.'];
+        }
+
+        $package = $this->get_dms_addon_package($packageCode);
+        if (empty($package)) {
+            return ['success' => false, 'message' => 'Invalid DMS package.'];
+        }
+
+        $availableCycles = $this->get_dms_addon_billing_cycle_options($package);
+        if (empty($availableCycles)) {
+            return ['success' => false, 'message' => 'The selected DMS package has no billing cycle configured.'];
+        }
+
+        if (!isset($availableCycles[$billingCycle])) {
+            return [
+                'success' => false,
+                'message' => 'Chu kỳ thanh toán không được phép đối với gói DMS đã chọn.',
+                'allowed_billing_periods' => array_keys($availableCycles),
+            ];
+        }
+
+        $existingAddonContext = $this->resolve_tenant_dms_addon_context($tenantId);
+        $existingAddonStatus = strtolower(trim((string) ($existingAddonContext['status'] ?? 'none')));
+        $existingAddonPackageCode = strtolower(trim((string) ($existingAddonContext['package_code'] ?? '')));
+        if ($existingAddonStatus === 'active' && $existingAddonPackageCode !== '' && $existingAddonPackageCode !== $packageCode) {
+            return ['success' => false, 'message' => 'This tenant already has an active DMS package. Review the current subscription before changing package.'];
+        }
+
+        $amount = $this->resolve_dms_addon_price($package, $billingCycle);
+        if ($existingAddonStatus === 'active') {
+            $activeOrder = $this->get_latest_dms_commercial_order($tenantId);
+            return [
+                'success' => false,
+                'message' => 'Gói DMS của doanh nghiệp đang hoạt động. Vui lòng dùng quy trình đổi gói.',
+                'order' => $activeOrder,
+            ];
+        }
+
+        $orderId = 0;
+        $pendingOrder = $this->get_pending_dms_commercial_order($tenantId);
+        if (!empty($pendingOrder)) {
+            $sameSelection = (string) ($pendingOrder['package_code'] ?? '') === $packageCode
+                && (string) ($pendingOrder['billing_cycle'] ?? '') === $billingCycle;
+            if (!$sameSelection) {
+                return [
+                    'success' => false,
+                    'message' => 'Bạn đã có đơn DMS đang chờ xử lý. Hãy tiếp tục thanh toán hoặc hủy đơn hiện tại trước khi chọn gói khác.',
+                    'pending_order' => $this->get_dms_commercial_order((int) $pendingOrder['id'], $tenantId),
+                    'conflict' => true,
+                ];
+            }
+            $orderId = (int) ($pendingOrder['id'] ?? 0);
+            if (!empty($pendingOrder['invoice_id'])) {
+                $reusedInvoice = $this->get_invoice((int) $pendingOrder['invoice_id']);
+                $this->append_dms_order_event($orderId, 'payment_page_opened', 'Doanh nghiệp tiếp tục thanh toán đơn DMS đang có.', [], 'payment_page_reopened|' . date('YmdH'));
+                return [
+                    'success' => !empty($reusedInvoice['id']),
+                    'reused' => true,
+                    'order_id' => $orderId,
+                    'order' => $this->get_dms_commercial_order($orderId, $tenantId),
+                    'invoice_id' => (int) ($reusedInvoice['id'] ?? 0),
+                    'invoice' => $reusedInvoice ?: [],
+                    'package' => $package,
+                    'package_code' => $packageCode,
+                    'billing_cycle' => $billingCycle,
+                    'addon_status' => 'payment_pending',
+                ];
+            }
+        }
+        if ($orderId <= 0) {
+            $orderResult = $this->create_dms_commercial_order($tenant, $package, $billingCycle, $amount, [
+                'source' => trim((string) ($options['source'] ?? 'tenant_marketplace')),
+                'payment_provider' => 'sepay',
+            ]);
+            if (empty($orderResult['success'])) {
+                return $orderResult;
+            }
+            $orderId = (int) ($orderResult['order_id'] ?? 0);
+        }
+        $existingInvoice = $this->get_tenant_dms_addon_invoice($tenantId, $packageCode);
+        $now = date('Y-m-d H:i:s');
+        $dueDays = max((int) kt_saas_get_option('kt_saas_billing_due_days', '7'), 0);
+        $dueDate = date('Y-m-d', strtotime('+' . $dueDays . ' days'));
+        $invoiceStatus = $amount > 0 ? 'pending_payment' : 'paid';
+        $invoiceNumber = '';
+
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/BillingEngineService.php');
+        $billing = new BillingEngineService();
+        if (!empty($existingInvoice['invoice_number'])) {
+            $invoiceNumber = (string) $existingInvoice['invoice_number'];
+        } else {
+            $invoiceNumber = (string) $billing->buildInvoiceNumber($tenant, $subscription);
+        }
+
+        $payload = [
+            'source' => trim((string) ($options['source'] ?? 'tenant_marketplace')),
+            'reason' => 'dms_addon_purchase',
+            'tenant_code' => (string) ($tenant['tenant_code'] ?? ''),
+            'subscription_id' => (int) ($subscription['id'] ?? 0),
+            'subscription_status' => (string) ($subscription['status'] ?? ''),
+            'package_code' => $packageCode,
+            'package_name' => (string) ($package['name'] ?? strtoupper($packageCode)),
+            'billing_cycle' => $billingCycle,
+            'service_type' => 'dms_runtime',
+            'dms_order_id' => $orderId,
+            'line_items' => [
+                [
+                    'type' => 'dms_addon',
+                    'label' => (string) ($package['name'] ?? strtoupper($packageCode)),
+                    'amount' => round($amount, 2),
+                    'quantity' => 1,
+                ],
+            ],
+            'billing_summary' => [
+                'currency' => 'VND',
+                'subtotal' => round($amount, 2),
+                'grand_total' => round($amount, 2),
+                'billing_cycle' => $billingCycle,
+            ],
+            'context' => [
+                'reason' => 'dms_addon_purchase',
+                'package_code' => $packageCode,
+                'billing_cycle' => $billingCycle,
+                'service_type' => 'dms_runtime',
+                'dms_order_id' => $orderId,
+            ],
+        ];
+
+        $invoiceRecord = [
+            'tenant_id' => $tenantId,
+            'subscription_id' => (int) ($subscription['id'] ?? 0),
+            'invoice_number' => $invoiceNumber,
+            'status' => $invoiceStatus,
+            'currency' => 'VND',
+            'subtotal' => round($amount, 2),
+            'tax_total' => 0,
+            'discount_total' => 0,
+            'grand_total' => round($amount, 2),
+            'issued_at' => $now,
+            'due_date' => $dueDate,
+            'paid_at' => $invoiceStatus === 'paid' ? $now : null,
+            'payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'created_at' => $now,
+            'updated_at' => $now,
+            'created_by' => get_staff_user_id() ?: null,
+            'updated_by' => get_staff_user_id() ?: null,
+        ];
+
+        if (!empty($existingInvoice['id'])) {
+            $this->update_invoice((int) $existingInvoice['id'], $invoiceRecord);
+            $invoiceId = (int) $existingInvoice['id'];
+        } else {
+            $this->landlord_db()->insert(db_prefix() . 'kt_saas_invoices', $invoiceRecord);
+            $invoiceId = (int) $this->landlord_db()->insert_id();
+        }
+
+        $this->update_dms_commercial_order($orderId, [
+            'invoice_id' => $invoiceId,
+            'payment_reference' => $invoiceNumber,
+            'status' => $invoiceStatus === 'paid' ? 'payment_verified' : 'payment_pending',
+            'payment_status' => $invoiceStatus === 'paid' ? 'paid' : 'payment_pending',
+            'verification_status' => $invoiceStatus === 'paid' ? 'verified' : 'pending',
+        ], 'invoice_created', 'Hóa đơn DMS đã được tạo và liên kết với đơn.', [
+            'invoice_id' => $invoiceId,
+            'invoice_number' => $invoiceNumber,
+            'dedupe' => 'invoice|' . $invoiceId,
+        ]);
+        if ($invoiceStatus !== 'paid') {
+            $this->append_dms_order_event($orderId, 'payment_pending', 'Đơn DMS đang chờ thanh toán.', [], 'payment_pending');
+        }
+
+        if ($existingAddonStatus !== 'active') {
+            $addonResult = $this->upsert_tenant_dms_addon($tenantId, $packageCode, $invoiceStatus === 'paid' ? 'active' : 'payment_pending', [
+                'billing_cycle' => $billingCycle,
+                'subscription_id' => (int) ($subscription['id'] ?? 0),
+                'provider_order_code' => $invoiceNumber,
+                'notes' => $invoiceStatus === 'paid'
+                    ? 'DMS add-on activated immediately because invoice total is zero.'
+                    : 'Waiting for invoice payment before DMS add-on activation.',
+            ]);
+
+            if (empty($addonResult['success'])) {
+                return $addonResult;
+            }
+        }
+
+        $invoice = $this->get_invoice($invoiceId);
+        $this->log_activity('marketplace.salesflow_dms_checkout_created', 'info', [
+            'tenant_id' => $tenantId,
+            'invoice_id' => $invoiceId,
+            'invoice_number' => $invoiceNumber,
+            'package_code' => $packageCode,
+            'billing_cycle' => $billingCycle,
+            'amount' => round($amount, 2),
+        ], $tenantId);
+
+        return [
+            'success' => !empty($invoice['id']),
+            'order_id' => $orderId,
+            'order' => $this->get_dms_commercial_order($orderId, $tenantId),
+            'invoice_id' => $invoiceId,
+            'invoice' => $invoice,
+            'package' => $package,
+            'package_code' => $packageCode,
+            'billing_cycle' => $billingCycle,
+            'addon_status' => $invoiceStatus === 'paid' ? 'active' : 'payment_pending',
+        ];
+    }
+
+    public function activate_tenant_dms_addon_from_invoice(array $invoice, array $paymentData = []): array
+    {
+        $invoiceId = (int) ($invoice['id'] ?? 0);
+        $tenantId = (int) ($invoice['tenant_id'] ?? 0);
+        if ($invoiceId <= 0 || $tenantId <= 0) {
+            return ['success' => false, 'message' => 'Invoice context is incomplete.'];
+        }
+        if (strtolower(trim((string) ($invoice['status'] ?? ''))) !== 'paid') {
+            return ['success' => false, 'message' => 'Không thể kích hoạt DMS khi hóa đơn chưa được xác minh thanh toán.'];
+        }
+
+        $payload = json_decode((string) ($invoice['payload_json'] ?? ''), true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+
+        $reason = strtolower(trim((string) ($payload['reason'] ?? ($payload['context']['reason'] ?? ''))));
+        if ($reason !== 'dms_addon_purchase') {
+            return ['success' => false, 'message' => 'Invoice does not belong to DMS add-on purchase flow.'];
+        }
+
+        $this->backfill_dms_commercial_orders($tenantId);
+        $commercialOrder = $this->get_dms_commercial_order_by_invoice($invoiceId);
+        $commercialOrderId = (int) ($commercialOrder['id'] ?? 0);
+        if ($commercialOrderId > 0) {
+            $paymentReference = trim((string) ($paymentData['payment_reference'] ?? ($commercialOrder['payment_reference'] ?? $invoice['invoice_number'] ?? '')));
+            $this->update_dms_commercial_order($commercialOrderId, [
+                'status' => 'payment_verified',
+                'payment_status' => 'paid',
+                'verification_status' => 'verified',
+                'payment_reference' => $paymentReference,
+                'last_payment_checked_at' => date('Y-m-d H:i:s'),
+            ], 'payment_verified', 'Thanh toán DMS đã được xác minh.', [
+                'invoice_id' => $invoiceId,
+                'dedupe' => 'payment_verified|' . $invoiceId,
+            ]);
+        }
+
+        $packageCode = strtolower(trim((string) ($payload['package_code'] ?? ($payload['context']['package_code'] ?? ''))));
+        $billingCycle = strtolower(trim((string) ($payload['billing_cycle'] ?? ($payload['context']['billing_cycle'] ?? 'monthly'))));
+        if (!in_array($billingCycle, ['monthly', 'quarterly', 'yearly'], true)) {
+            $billingCycle = 'monthly';
+        }
+
+        $addonResult = $this->upsert_tenant_dms_addon($tenantId, $packageCode, 'active', [
+            'billing_cycle' => $billingCycle,
+            'subscription_id' => (int) ($invoice['subscription_id'] ?? 0),
+            'provider_order_code' => (string) ($invoice['invoice_number'] ?? ''),
+            'notes' => 'Activated from DMS add-on invoice #' . $invoiceId . ' after successful payment.',
+        ]);
+
+        if (empty($addonResult['success'])) {
+            return $addonResult;
+        }
+
+        $moduleResult = $this->save_tenant_module_override($tenantId, 'kt_integration_hub', 'enable');
+        if (empty($moduleResult['success'])) {
+            return $moduleResult;
+        }
+
+        $tenant = $this->get_tenant($tenantId);
+        $this->sync_tenant_module_registry($tenantId, $tenant ?: []);
+
+        $jobs = $this->get_tenant_provision_jobs($tenantId, ['install_salesflow_dms'], 10);
+        $hasReusableProvisionJob = false;
+        $latestProvisionJobId = null;
+        foreach ($jobs as $job) {
+            $jobStatus = strtolower(trim((string) ($job['status'] ?? '')));
+            if (in_array($jobStatus, ['queued', 'running', 'done'], true)) {
+                $hasReusableProvisionJob = true;
+                $latestProvisionJobId = (int) ($job['id'] ?? 0);
+                break;
+            }
+        }
+
+        if (!$hasReusableProvisionJob) {
+            $latestProvisionJobId = (int) $this->create_provision_job($tenantId, 'install_salesflow_dms', [
+                'tenant_id' => $tenantId,
+                'tenant_code' => (string) ($tenant['tenant_code'] ?? ''),
+                'app_slug' => 'salesflow-dms',
+                'source' => 'dms_addon_invoice_payment',
+                'package_code' => $packageCode,
+                'invoice_id' => $invoiceId,
+            ]);
+
+            if ($latestProvisionJobId > 0) {
+                $this->upsert_tenant_dms_addon($tenantId, $packageCode, 'active', [
+                    'billing_cycle' => $billingCycle,
+                    'subscription_id' => (int) ($invoice['subscription_id'] ?? 0),
+                    'provider_order_code' => (string) ($invoice['invoice_number'] ?? ''),
+                    'provisioning_job_id' => $latestProvisionJobId,
+                    'notes' => 'Activated from DMS add-on invoice #' . $invoiceId . ' and queued for provisioning.',
+                ]);
+            }
+        }
+
+        if ($commercialOrderId > 0) {
+            $this->update_dms_commercial_order($commercialOrderId, [
+                'status' => $latestProvisionJobId > 0 ? 'provisioning_pending' : 'subscription_active',
+                'subscription_status' => 'active',
+                'provisioning_status' => $latestProvisionJobId > 0 ? 'provisioning_pending' : 'not_started',
+                'workspace_status' => 'not_ready',
+                'provision_job_id' => $latestProvisionJobId ?: null,
+                'activated_at' => date('Y-m-d H:i:s'),
+                'blocked_reason' => null,
+            ], 'subscription_activated', 'Gói DMS đã được kích hoạt.', [
+                'invoice_id' => $invoiceId,
+                'provision_job_id' => $latestProvisionJobId,
+                'dedupe' => 'subscription_activated|' . $invoiceId,
+            ]);
+            if ($latestProvisionJobId > 0) {
+                $this->append_dms_order_event($commercialOrderId, 'workspace_provision_started', 'Workspace DMS đang được khởi tạo.', [
+                    'provision_job_id' => $latestProvisionJobId,
+                ], 'workspace_provision_started|' . $latestProvisionJobId);
+            }
+        }
+
+        $this->log_activity('marketplace.salesflow_dms_addon_activated', 'success', [
+            'tenant_id' => $tenantId,
+            'invoice_id' => $invoiceId,
+            'invoice_number' => (string) ($invoice['invoice_number'] ?? ''),
+            'package_code' => $packageCode,
+            'billing_cycle' => $billingCycle,
+            'provision_job_id' => $latestProvisionJobId,
+            'payment_reference' => (string) ($paymentData['payment_reference'] ?? ''),
+        ], $tenantId);
+
+        return [
+            'success' => true,
+            'tenant_id' => $tenantId,
+            'invoice_id' => $invoiceId,
+            'package_code' => $packageCode,
+            'provision_job_id' => $latestProvisionJobId,
+            'dms_order_id' => $commercialOrderId,
+        ];
+    }
+
+    public function tenant_has_active_dms_addon($tenantId): bool
+    {
+        $context = $this->resolve_tenant_dms_addon_context($tenantId);
+
+        return !empty($context['is_active']);
+    }
+
+    public function get_legacy_dms_tenant_inventory(array $tenantIds = []): array
+    {
+        require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+        $entitlementService = new TenantEntitlementService();
+        $db = $this->landlord_db()
+            ->where('deleted_at IS NULL', null, false);
+
+        $tenantIds = array_values(array_unique(array_filter(array_map('intval', $tenantIds))));
+        if (!empty($tenantIds)) {
+            $db->where_in('id', $tenantIds);
+        }
+
+        $tenants = $db->order_by('id', 'asc')->get(db_prefix() . 'kt_saas_tenants')->result_array();
+        $inventory = [];
+        foreach ($tenants as $tenant) {
+            $tenantId = (int) ($tenant['id'] ?? 0);
+            if ($tenantId <= 0) {
+                continue;
+            }
+
+            $addonContext = $this->resolve_tenant_dms_addon_context($tenantId);
+            $hasAddon = !empty($addonContext['addon']['id']);
+            $legacyEnabled = !$hasAddon && (bool) $entitlementService->getFeatureValue($tenantId, 'dms.enabled', false);
+            $subscription = $this->get_tenant_subscription_profile($tenantId);
+            $inventory[] = [
+                'tenant_id' => $tenantId,
+                'tenant_code' => (string) ($tenant['tenant_code'] ?? ''),
+                'company_name' => (string) ($tenant['company_name'] ?? ''),
+                'plan_id' => (int) ($tenant['plan_id'] ?? 0),
+                'subscription_id' => (int) ($subscription['id'] ?? 0),
+                'subscription_status' => (string) ($subscription['status'] ?? ''),
+                'legacy_shim' => $legacyEnabled,
+                'addon_row_id' => (int) ($addonContext['addon']['id'] ?? 0),
+                'addon_status' => (string) ($addonContext['status'] ?? 'none'),
+                'recommended_package_code' => $this->resolve_legacy_dms_package_code($tenantId, $entitlementService),
+            ];
+        }
+
+        return $inventory;
+    }
+
+    public function backfill_legacy_dms_addon_subscriptions(array $tenantIds = [], array $options = []): array
+    {
+        $inventory = $this->get_legacy_dms_tenant_inventory($tenantIds);
+        $results = [
+            'checked' => count($inventory),
+            'created' => 0,
+            'skipped' => 0,
+            'failed' => 0,
+            'rows' => [],
+        ];
+
+        foreach ($inventory as $row) {
+            if (empty($row['legacy_shim']) || !empty($row['addon_row_id'])) {
+                $results['skipped']++;
+                $results['rows'][] = $row + [
+                    'action' => 'skipped',
+                    'message' => empty($row['legacy_shim'])
+                        ? 'Tenant is not using the legacy DMS shim.'
+                        : 'Tenant already has a DMS add-on row.',
+                ];
+                continue;
+            }
+
+            $packageCode = strtolower(trim((string) ($row['recommended_package_code'] ?? '')));
+            if ($packageCode === '') {
+                $packageCode = strtolower(trim((string) ($options['default_package_code'] ?? 'dms_standard')));
+            }
+
+            $tenant = $this->get_tenant((int) $row['tenant_id']);
+            $startsAt = (string) ($tenant['created_at'] ?? '') !== '' ? (string) $tenant['created_at'] : date('Y-m-d H:i:s');
+            $result = $this->upsert_tenant_dms_addon((int) $row['tenant_id'], $packageCode, 'active', [
+                'subscription_id' => (int) ($row['subscription_id'] ?? 0),
+                'billing_cycle' => 'monthly',
+                'provider_order_code' => 'legacy-migration-' . (int) $row['tenant_id'],
+                'starts_at' => $startsAt,
+                'ends_at' => null,
+                'notes' => 'Backfilled from legacy DMS entitlement shim.',
+            ]);
+
+            if (empty($result['success'])) {
+                $results['failed']++;
+                $results['rows'][] = $row + [
+                    'action' => 'failed',
+                    'message' => (string) ($result['message'] ?? 'Unknown legacy backfill failure.'),
+                    'package_code' => $packageCode,
+                ];
+                continue;
+            }
+
+            $this->save_tenant_module_override((int) $row['tenant_id'], 'kt_integration_hub', 'enable');
+            $this->sync_tenant_module_registry((int) $row['tenant_id'], $tenant ?: []);
+            $this->log_activity('marketplace.salesflow_dms_legacy_backfilled', 'warning', [
+                'tenant_id' => (int) $row['tenant_id'],
+                'package_code' => $packageCode,
+                'source' => 'legacy_migration',
+            ], (int) $row['tenant_id']);
+
+            $results['created']++;
+            $results['rows'][] = $row + [
+                'action' => 'created',
+                'message' => 'Created active DMS add-on row from legacy shim.',
+                'package_code' => $packageCode,
+            ];
+        }
+
+        return $results;
+    }
+
+    private function canQueryDmsAddonTable(): bool
+    {
+        try {
+            $db = $this->landlord_db();
+            if (!is_object($db)) {
+                return false;
+            }
+
+            if (method_exists($db, 'table_exists')) {
+                return $db->table_exists(db_prefix() . 'kt_saas_tenant_addons');
+            }
+
+            return true;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    private function resolve_dms_addon_price(array $package, $billingCycle): float
+    {
+        $billingCycle = strtolower(trim((string) $billingCycle));
+        if ($billingCycle === 'quarterly' && array_key_exists('quarterly_price', $package)) {
+            $amount = (float) ($package['quarterly_price'] ?? 0);
+        } elseif ($billingCycle === 'yearly') {
+            $amount = (float) ($package['yearly_price'] ?? 0);
+        } else {
+            $amount = (float) ($package['monthly_price'] ?? 0);
+        }
+
+        return round(max(0, $amount), 2);
+    }
+
+    private function resolve_legacy_dms_package_code($tenantId, $entitlementService = null): string
+    {
+        if ($entitlementService === null) {
+            require_once module_dir_path(KT_SAAS_MODULE, 'services/TenantEntitlementService.php');
+            $entitlementService = new TenantEntitlementService();
+        }
+
+        $featureValue = strtolower(trim((string) $entitlementService->getFeatureValue((int) $tenantId, 'dms.package_code', '')));
+        if ($featureValue !== '' && !empty($this->get_dms_addon_package($featureValue))) {
+            return $featureValue;
+        }
+
+        return 'dms_standard';
+    }
+
+    public function get_plan_feature_value_map($planId, $featureKeys = [])
+    {
+        $planId = (int) $planId;
+        if ($planId <= 0 || !$this->hasPlanFeatureValueColumn()) {
+            return [];
+        }
+
+        $featureKeys = array_values(array_filter(array_map('strval', is_array($featureKeys) ? $featureKeys : [])));
+        if (empty($featureKeys)) {
+            return [];
+        }
+
+        $rows = $this->landlord_db()
+            ->select('feature_key, feature_value')
+            ->from(db_prefix() . 'kt_saas_plan_features')
+            ->where('plan_id', $planId)
+            ->where_in('feature_key', $featureKeys)
+            ->get()
+            ->result_array();
+
+        $values = [];
+        foreach ($rows as $row) {
+            $featureKey = (string) ($row['feature_key'] ?? '');
+            if ($featureKey === '') {
+                continue;
+            }
+
+            $values[$featureKey] = $row['feature_value'];
+        }
+
+        return $values;
+    }
+
+    protected function hasPlanFeatureValueColumn()
+    {
+        if ($this->planFeatureValueColumnExists !== null) {
+            return $this->planFeatureValueColumnExists;
+        }
+
+        $db = $this->landlord_db();
+        $planFeaturesTable = db_prefix() . 'kt_saas_plan_features';
+
+        if (!is_object($db)) {
+            $this->planFeatureValueColumnExists = false;
+            return false;
+        }
+
+        if (!method_exists($db, 'table_exists') || !method_exists($db, 'field_exists')) {
+            $this->planFeatureValueColumnExists = true;
+            return true;
+        }
+
+        $this->planFeatureValueColumnExists = $db->table_exists($planFeaturesTable)
+            && $db->field_exists('feature_value', $planFeaturesTable);
+
+        return $this->planFeatureValueColumnExists;
     }
 
     public function get_plan_workspace_feature_keys($planId)
@@ -1412,6 +3345,209 @@ class Kt_saas_model extends App_Model
             'snapshot_date' => $snapshotDate,
             'metrics'       => $metrics,
         ];
+    }
+
+    public function sync_tenant_dms_usage_snapshot($tenantId, array $options = []): array
+    {
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0) {
+            return ['metrics' => [], 'limits' => [], 'package' => [], 'renewal_date' => null];
+        }
+
+        $addonContext = is_array($options['addon_context'] ?? null)
+            ? $options['addon_context']
+            : $this->resolve_tenant_dms_addon_context($tenantId);
+        $package = is_array($addonContext['package'] ?? null) ? $addonContext['package'] : [];
+
+        $limits = [
+            'dms_user' => max(0, (int) ($package['user_limit'] ?? 0)),
+            'dms_store' => max(0, (int) ($package['store_limit'] ?? 0)),
+            'dms_product' => max(0, (int) ($package['product_limit'] ?? 0)),
+            'dms_checkin' => max(0, (int) ($package['checkin_monthly_limit'] ?? 0)),
+            'dms_order' => max(0, (int) ($package['order_monthly_limit'] ?? 0)),
+            'dms_photo' => max(0, (int) ($package['photo_limit'] ?? 0)),
+            'dms_export' => max(0, (int) ($package['report_export_limit'] ?? 0)),
+        ];
+
+        $metrics = [
+            'dms_user' => $this->count_dms_entity_links($tenantId, 'staff'),
+            'dms_store' => $this->count_dms_entity_links($tenantId, 'customer'),
+            'dms_product' => $this->count_dms_entity_links($tenantId, 'product'),
+            'dms_checkin' => $this->count_tenant_dms_checkins_this_month($tenantId),
+            'dms_order' => $this->count_tenant_dms_orders_this_month($tenantId),
+            'dms_photo' => $this->current_usage_metric_value($tenantId, 'dms_photo'),
+            'dms_export' => $this->current_usage_metric_value($tenantId, 'dms_export'),
+        ];
+
+        $monthStart = date('Y-m-01 00:00:00');
+        $monthEnd = date('Y-m-t 23:59:59');
+        foreach ($metrics as $metricKey => $usedValue) {
+            $periodStart = null;
+            $periodEnd = null;
+            if (in_array($metricKey, ['dms_checkin', 'dms_order', 'dms_photo', 'dms_export'], true)) {
+                $periodStart = $monthStart;
+                $periodEnd = $monthEnd;
+            }
+
+            $this->upsert_usage_metric_snapshot(
+                $tenantId,
+                'dms',
+                $metricKey,
+                (float) $usedValue,
+                (float) ($limits[$metricKey] ?? 0),
+                $periodStart,
+                $periodEnd
+            );
+        }
+
+        return [
+            'metrics' => $metrics,
+            'limits' => $limits,
+            'package' => $package,
+            'renewal_date' => !empty($addonContext['addon']['ends_at']) ? (string) $addonContext['addon']['ends_at'] : null,
+        ];
+    }
+
+    public function get_tenant_dms_usage_summary($tenantId, array $options = []): array
+    {
+        $snapshot = $this->sync_tenant_dms_usage_snapshot((int) $tenantId, $options);
+        $metrics = (array) ($snapshot['metrics'] ?? []);
+        $limits = (array) ($snapshot['limits'] ?? []);
+        $package = (array) ($snapshot['package'] ?? []);
+
+        $rows = [];
+        foreach ([
+            'dms_user' => 'Users Used',
+            'dms_store' => 'Stores Used',
+            'dms_product' => 'Products Used',
+            'dms_checkin' => 'Check-ins Used',
+            'dms_order' => 'Orders Used',
+            'dms_photo' => 'Photos Used',
+            'dms_export' => 'Report Exports Used',
+        ] as $metricKey => $label) {
+            $used = (int) ($metrics[$metricKey] ?? 0);
+            $limit = (int) ($limits[$metricKey] ?? 0);
+            $rows[] = [
+                'metric_key' => $metricKey,
+                'label' => $label,
+                'used' => $used,
+                'limit' => $limit,
+                'remaining' => $limit > 0 ? max(0, $limit - $used) : null,
+            ];
+        }
+
+        return [
+            'current_package' => (string) ($package['name'] ?? 'Not active'),
+            'renewal_date' => $snapshot['renewal_date'] ?? null,
+            'rows' => $rows,
+            'metrics' => $metrics,
+            'limits' => $limits,
+        ];
+    }
+
+    private function count_dms_entity_links($tenantId, $entityType)
+    {
+        $table = db_prefix() . 'kt_integration_entity_links';
+        if (!$this->landlord_db()->table_exists($table)) {
+            return 0;
+        }
+
+        $row = $this->landlord_db()
+            ->select('COUNT(DISTINCT local_id) as total', false)
+            ->where('tenant_id', (int) $tenantId)
+            ->where('provider_code', 'salesflow_dms')
+            ->where('entity_type', trim((string) $entityType))
+            ->get($table)
+            ->row_array();
+
+        return (int) ($row['total'] ?? 0);
+    }
+
+    private function count_tenant_dms_checkins_this_month($tenantId)
+    {
+        $table = db_prefix() . 'dms_checkin_events';
+        if (!$this->landlord_db()->table_exists($table)) {
+            return 0;
+        }
+
+        $monthStart = date('Y-m-01 00:00:00');
+        $monthEnd = date('Y-m-t 23:59:59');
+
+        return (int) $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('checkin_at >=', $monthStart)
+            ->where('checkin_at <=', $monthEnd)
+            ->count_all_results($table);
+    }
+
+    private function count_tenant_dms_orders_this_month($tenantId)
+    {
+        $db = $this->landlord_db();
+        $monthStart = date('Y-m-01 00:00:00');
+        $monthEnd = date('Y-m-t 23:59:59');
+
+        $projectionTable = db_prefix() . 'dms_order_projection';
+        if ($db->table_exists($projectionTable)) {
+            return (int) $db
+                ->where('tenant_id', (int) $tenantId)
+                ->where('COALESCE(submitted_at, synced_at, created_at) >= ' . $db->escape($monthStart), null, false)
+                ->where('COALESCE(submitted_at, synced_at, created_at) <= ' . $db->escape($monthEnd), null, false)
+                ->count_all_results($projectionTable);
+        }
+
+        $bridgeTable = db_prefix() . 'dms_order_bridge';
+        if (!$db->table_exists($bridgeTable)) {
+            return 0;
+        }
+
+        return (int) $db
+            ->where('tenant_id', (int) $tenantId)
+            ->where('created_at >=', $monthStart)
+            ->where('created_at <=', $monthEnd)
+            ->count_all_results($bridgeTable);
+    }
+
+    private function current_usage_metric_value($tenantId, $metricKey)
+    {
+        $row = $this->landlord_db()
+            ->select('used_value')
+            ->where('tenant_id', (int) $tenantId)
+            ->where('module_name', 'dms')
+            ->where('metric_key', trim((string) $metricKey))
+            ->get(db_prefix() . 'kt_saas_usage')
+            ->row_array();
+
+        return isset($row['used_value']) ? (float) $row['used_value'] : 0.0;
+    }
+
+    private function upsert_usage_metric_snapshot($tenantId, $moduleName, $metricKey, $usedValue, $limitValue = 0.0, $periodStart = null, $periodEnd = null)
+    {
+        $db = $this->landlord_db();
+        $now = date('Y-m-d H:i:s');
+        $existing = $db
+            ->where('tenant_id', (int) $tenantId)
+            ->where('module_name', trim((string) $moduleName))
+            ->where('metric_key', trim((string) $metricKey))
+            ->get(db_prefix() . 'kt_saas_usage')
+            ->row_array();
+
+        $record = [
+            'tenant_id' => (int) $tenantId,
+            'module_name' => trim((string) $moduleName),
+            'metric_key' => trim((string) $metricKey),
+            'used_value' => round((float) $usedValue, 2),
+            'limit_value' => round((float) $limitValue, 2),
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+            'updated_at' => $now,
+        ];
+
+        if ($existing) {
+            $db->where('id', (int) $existing['id'])->update(db_prefix() . 'kt_saas_usage', $record);
+            return true;
+        }
+
+        return $db->insert(db_prefix() . 'kt_saas_usage', $record);
     }
 
     public function find_open_tenant_invoice_by_reason($tenantId, $subscriptionId, $reason, $targetPlanId = null)
@@ -2183,6 +4319,145 @@ class Kt_saas_model extends App_Model
             ->row_array();
     }
 
+    public function ensure_landlord_client_contact($tenantId)
+    {
+        $tenantId = (int) $tenantId;
+        $tenant = $this->get_tenant($tenantId);
+        if (!$tenant) {
+            return ['success' => false, 'message' => 'Tenant not found.'];
+        }
+
+        $this->load->model('clients_model');
+        $db = $this->landlord_db();
+        $now = date('Y-m-d H:i:s');
+
+        $linkedClientId = (int) ($tenant['landlord_client_id'] ?? 0);
+        $linkedContactId = (int) ($tenant['landlord_contact_id'] ?? 0);
+
+        $client = $linkedClientId > 0 ? $this->clients_model->get($linkedClientId) : null;
+        $contact = $linkedContactId > 0 ? $this->clients_model->get_contact($linkedContactId) : null;
+
+        if (!$contact && $client) {
+            $contact = $this->find_landlord_contact_for_client((int) $client->userid, (string) ($tenant['owner_email'] ?? ''));
+        }
+
+        if ($contact && !$client) {
+            $client = $this->clients_model->get((int) ($contact->userid ?? 0));
+        }
+
+        if (!$contact && !$client) {
+            $contact = $this->find_safe_landlord_contact_by_email((string) ($tenant['owner_email'] ?? ''));
+            if ($contact) {
+                $client = $this->clients_model->get((int) ($contact->userid ?? 0));
+            }
+        }
+
+        if (!$client) {
+            [$firstName, $lastName] = $this->split_owner_name((string) ($tenant['owner_name'] ?? ''));
+            $clientId = (int) $this->clients_model->add([
+                'company' => (string) ($tenant['company_name'] ?? ''),
+                'phonenumber' => (string) ($tenant['phone'] ?? ''),
+                'active' => 1,
+                'firstname' => $firstName,
+                'lastname' => $lastName,
+                'email' => (string) ($tenant['owner_email'] ?? ''),
+                'password' => $this->generateStrongPassword(24),
+                'is_primary' => 1,
+                'donotsendwelcomeemail' => true,
+            ], true);
+
+            if ($clientId <= 0) {
+                return ['success' => false, 'message' => 'Failed to create landlord client.'];
+            }
+
+            $client = $this->clients_model->get($clientId);
+            $contact = $this->find_landlord_contact_for_client($clientId, (string) ($tenant['owner_email'] ?? ''));
+        } elseif (!$contact) {
+            [$firstName, $lastName] = $this->split_owner_name((string) ($tenant['owner_name'] ?? ''));
+            $contactId = (int) $this->clients_model->add_contact([
+                'firstname' => $firstName,
+                'lastname' => $lastName,
+                'email' => (string) ($tenant['owner_email'] ?? ''),
+                'phonenumber' => (string) ($tenant['phone'] ?? ''),
+                'password' => $this->generateStrongPassword(24),
+                'is_primary' => 1,
+                'donotsendwelcomeemail' => true,
+            ], (int) $client->userid, true);
+
+            if ($contactId <= 0) {
+                return ['success' => false, 'message' => 'Failed to create landlord contact.'];
+            }
+
+            $contact = $this->clients_model->get_contact($contactId);
+        }
+
+        if (!$client || !$contact) {
+            return ['success' => false, 'message' => 'Landlord client/contact linkage is incomplete.'];
+        }
+
+        $clientId = (int) ($client->userid ?? 0);
+        $contactId = (int) ($contact->id ?? 0);
+        if ($clientId <= 0 || $contactId <= 0 || (int) ($contact->userid ?? 0) !== $clientId) {
+            return ['success' => false, 'message' => 'Linked landlord contact does not belong to the resolved landlord client.'];
+        }
+
+        $db->where('userid', $clientId)->update(db_prefix() . 'clients', [
+            'company' => (string) ($tenant['company_name'] ?? ''),
+            'phonenumber' => (string) ($tenant['phone'] ?? ''),
+            'active' => 1,
+        ]);
+
+        [$firstName, $lastName] = $this->split_owner_name((string) ($tenant['owner_name'] ?? ''));
+        $db->where('id', $contactId)->update(db_prefix() . 'contacts', [
+            'firstname' => $firstName,
+            'lastname' => $lastName,
+            'email' => (string) ($tenant['owner_email'] ?? ''),
+            'phonenumber' => (string) ($tenant['phone'] ?? ''),
+            'active' => 1,
+            'is_primary' => 1,
+        ]);
+
+        $shouldSendVerification = empty($contact->email_verified_at);
+        if (!$shouldSendVerification && $linkedContactId <= 0) {
+            $shouldSendVerification = true;
+        }
+
+        if ($shouldSendVerification) {
+            $db->where('id', $contactId)->update(db_prefix() . 'contacts', [
+                'email_verified_at' => null,
+                'email_verification_key' => app_generate_hash(),
+                'email_verification_sent_at' => null,
+            ]);
+        }
+
+        $db->where('id', $tenantId)->update(db_prefix() . 'kt_saas_tenants', [
+            'landlord_client_id' => $clientId,
+            'landlord_contact_id' => $contactId,
+            'updated_at' => $now,
+            'updated_by' => get_staff_user_id() ?: null,
+        ]);
+
+        $verificationSent = true;
+        if ($shouldSendVerification) {
+            $verificationSent = (bool) $this->clients_model->send_verification_email($contactId);
+            if (!$verificationSent) {
+                return [
+                    'success' => false,
+                    'message' => 'Landlord contact was linked but verification email was not sent.',
+                    'landlord_client_id' => $clientId,
+                    'landlord_contact_id' => $contactId,
+                ];
+            }
+        }
+
+        return [
+            'success' => true,
+            'landlord_client_id' => $clientId,
+            'landlord_contact_id' => $contactId,
+            'verification_email_sent' => $verificationSent,
+        ];
+    }
+
     public function get_tenant_for_lifecycle($id)
     {
         return $this->landlord_db()
@@ -2371,6 +4646,147 @@ class Kt_saas_model extends App_Model
         ], (int) $tenantId);
 
         return ['success' => true];
+    }
+
+    public function save_tenant_feature_override($tenantId, $moduleName, $featureKey, $enabled, $overridden = 1)
+    {
+        $tenant = $this->get_tenant((int) $tenantId);
+        if (!$tenant) {
+            return ['success' => false, 'message' => 'Tenant not found.'];
+        }
+
+        $moduleName = strtolower(trim((string) $moduleName));
+        $featureKey = strtolower(trim((string) $featureKey));
+        if ($moduleName === '' || $featureKey === '') {
+            return ['success' => false, 'message' => 'Module name and feature key are required.'];
+        }
+
+        $existing = $this->landlord_db()
+            ->where('tenant_id', (int) $tenantId)
+            ->where('feature_key', $featureKey)
+            ->get(db_prefix() . 'kt_saas_tenant_entitlements')
+            ->row_array();
+
+        $now = date('Y-m-d H:i:s');
+        $payload = [
+            'tenant_id'      => (int) $tenantId,
+            'module_name'    => $moduleName,
+            'feature_key'    => $featureKey,
+            'is_enabled'     => $enabled ? 1 : 0,
+            'source_plan_id' => (int) ($tenant['plan_id'] ?? 0) ?: null,
+            'overridden'     => $overridden ? 1 : 0,
+            'updated_at'     => $now,
+        ];
+
+        if ($existing) {
+            $this->landlord_db()->where('id', (int) $existing['id'])->update(db_prefix() . 'kt_saas_tenant_entitlements', $payload);
+        } else {
+            $payload['created_at'] = $now;
+            $this->landlord_db()->insert(db_prefix() . 'kt_saas_tenant_entitlements', $payload);
+        }
+
+        return ['success' => true];
+    }
+
+    public function install_salesflow_dms_marketplace_app($tenantId, $packageCode = null, array $options = [])
+    {
+        $tenant = $this->get_tenant((int) $tenantId);
+        if (!$tenant) {
+            return ['success' => false, 'message' => 'Tenant not found.'];
+        }
+
+        $subscription = $this->get_tenant_subscription_profile((int) $tenantId);
+        $tenantStatus = strtolower(trim((string) ($tenant['status'] ?? 'draft')));
+        $subscriptionStatus = strtolower(trim((string) ($subscription['status'] ?? 'draft')));
+        if (in_array($tenantStatus, ['suspended', 'terminated', 'inactive', 'archived'], true) || in_array($subscriptionStatus, ['suspended', 'cancelled', 'terminated', 'inactive'], true)) {
+            return ['success' => false, 'message' => 'Tenant subscription is not active enough to install Salesflow DMS.'];
+        }
+
+        $requestedPackageCode = strtolower(trim((string) $packageCode));
+        if ($requestedPackageCode !== '') {
+            $addonResult = $this->upsert_tenant_dms_addon(
+                (int) $tenantId,
+                $requestedPackageCode,
+                'payment_pending',
+                [
+                    'billing_cycle' => (string) ($options['billing_cycle'] ?? 'monthly'),
+                    'notes' => 'Marketplace package selected; waiting for invoice payment before activation.',
+                ]
+            );
+
+            if (empty($addonResult['success'])) {
+                return $addonResult;
+            }
+        }
+
+        $addonContext = $this->resolve_tenant_dms_addon_context((int) $tenantId);
+        if (empty($addonContext)) {
+            return ['success' => false, 'message' => 'Choose a DMS package before provisioning Salesflow DMS.'];
+        }
+
+        $addonStatus = (string) ($addonContext['status'] ?? 'none');
+        if ($addonStatus !== 'active') {
+            $this->log_activity('marketplace.salesflow_dms_purchase_required', 'warning', [
+                'tenant_id' => (int) $tenantId,
+                'app_slug' => 'salesflow-dms',
+                'package_code' => (string) ($addonContext['package_code'] ?? ''),
+                'addon_status' => $addonStatus,
+            ], (int) $tenantId);
+
+            return [
+                'success' => true,
+                'requires_activation' => true,
+                'addon_status' => $addonStatus,
+                'message' => 'DMS package selected. Complete payment before provisioning can continue.',
+            ];
+        }
+
+        $moduleResult = $this->save_tenant_module_override((int) $tenantId, 'kt_integration_hub', 'enable');
+        if (empty($moduleResult['success'])) {
+            return $moduleResult;
+        }
+
+        $jobId = $this->create_provision_job((int) $tenantId, 'install_salesflow_dms', [
+            'tenant_id' => (int) $tenantId,
+            'tenant_code' => (string) ($tenant['tenant_code'] ?? ''),
+            'app_slug' => 'salesflow-dms',
+            'source' => 'tenant_marketplace',
+            'package_code' => (string) ($addonContext['package_code'] ?? ''),
+        ]);
+
+        $this->sync_tenant_module_registry((int) $tenantId, $tenant);
+        $this->log_activity('marketplace.salesflow_dms_install_requested', 'info', [
+            'tenant_id' => (int) $tenantId,
+            'app_slug' => 'salesflow-dms',
+            'job_id' => $jobId ?: null,
+            'package_code' => (string) ($addonContext['package_code'] ?? ''),
+        ], (int) $tenantId);
+
+        return [
+            'success' => true,
+            'job_id' => (int) $jobId,
+            'addon_status' => $addonStatus,
+            'package_code' => (string) ($addonContext['package_code'] ?? ''),
+        ];
+    }
+
+    public function get_tenant_provision_jobs($tenantId, array $jobTypes = [], $limit = 20)
+    {
+        $tenantId = (int) $tenantId;
+        if ($tenantId <= 0) {
+            return [];
+        }
+
+        $db = $this->landlord_db()
+            ->where('tenant_id', $tenantId)
+            ->order_by('id', 'desc')
+            ->limit((int) $limit);
+
+        if (!empty($jobTypes)) {
+            $db->where_in('job_type', array_values(array_unique(array_filter(array_map('strval', $jobTypes)))));
+        }
+
+        return $db->get(db_prefix() . 'kt_saas_provision_jobs')->result_array();
     }
 
     public function get_backups($tenantId = null)
@@ -2814,6 +5230,66 @@ class Kt_saas_model extends App_Model
             'db_user' => $dbUser,
             'db_password' => $dbPassword,
         ];
+    }
+
+    private function find_safe_landlord_contact_by_email($email)
+    {
+        $email = strtolower(trim((string) $email));
+        if ($email === '') {
+            return null;
+        }
+
+        $matches = $this->landlord_db()
+            ->where('LOWER(email) = ' . $this->landlord_db()->escape($email), null, false)
+            ->get(db_prefix() . 'contacts')
+            ->result();
+
+        return count($matches) === 1 ? $matches[0] : null;
+    }
+
+    private function find_landlord_contact_for_client($clientId, $email = '')
+    {
+        $clientId = (int) $clientId;
+        if ($clientId <= 0) {
+            return null;
+        }
+
+        $db = $this->landlord_db();
+        $email = strtolower(trim((string) $email));
+
+        if ($email !== '') {
+            $contact = $db
+                ->where('userid', $clientId)
+                ->where('LOWER(email) = ' . $db->escape($email), null, false)
+                ->order_by('is_primary', 'desc')
+                ->order_by('id', 'asc')
+                ->get(db_prefix() . 'contacts')
+                ->row();
+            if ($contact) {
+                return $contact;
+            }
+        }
+
+        return $db
+            ->where('userid', $clientId)
+            ->order_by('is_primary', 'desc')
+            ->order_by('id', 'asc')
+            ->get(db_prefix() . 'contacts')
+            ->row();
+    }
+
+    private function split_owner_name($ownerName)
+    {
+        $ownerName = trim((string) $ownerName);
+        if ($ownerName === '') {
+            return ['Owner', ''];
+        }
+
+        $parts = preg_split('/\s+/', $ownerName) ?: [];
+        $firstName = (string) array_shift($parts);
+        $lastName = trim(implode(' ', $parts));
+
+        return [$firstName, $lastName];
     }
 
     private function getReservedSubdomainNames()
@@ -3394,7 +5870,13 @@ class Kt_saas_model extends App_Model
 
         if ($id) {
             $db->where('id', (int) $id)->update(db_prefix() . 'kt_saas_plans', $payload);
-            $this->sync_plan_features((int) $id, $payload['module_json'], $data['workspace_feature_keys'] ?? [], $data['integration_feature_keys'] ?? []);
+            $this->sync_plan_features(
+                (int) $id,
+                $payload['module_json'],
+                $data['workspace_feature_keys'] ?? [],
+                $data['integration_feature_keys'] ?? [],
+                $data['integration_feature_values'] ?? []
+            );
             $this->sync_all_tenant_module_registries((int) $id);
             $this->log_activity('plan.updated', 'info', [
                 'plan_id'   => (int) $id,
@@ -3408,7 +5890,13 @@ class Kt_saas_model extends App_Model
         $db->insert(db_prefix() . 'kt_saas_plans', $payload);
 
         $planId = (int) $db->insert_id();
-        $this->sync_plan_features($planId, $payload['module_json'], $data['workspace_feature_keys'] ?? [], $data['integration_feature_keys'] ?? []);
+        $this->sync_plan_features(
+            $planId,
+            $payload['module_json'],
+            $data['workspace_feature_keys'] ?? [],
+            $data['integration_feature_keys'] ?? [],
+            $data['integration_feature_values'] ?? []
+        );
         $this->sync_all_tenant_module_registries($planId);
         $this->log_activity('plan.created', 'info', [
             'plan_id'   => $planId,
@@ -3537,7 +6025,7 @@ class Kt_saas_model extends App_Model
         return ['success' => true, 'soft_deleted' => true, 'dependencies' => $deps];
     }
 
-    protected function sync_plan_features($planId, $moduleJson, $workspaceFeatureKeys = [], $integrationFeatureKeys = [])
+    protected function sync_plan_features($planId, $moduleJson, $workspaceFeatureKeys = [], $integrationFeatureKeys = [], $integrationFeatureValues = [])
     {
         $db = $this->landlord_db();
         $db->where('plan_id', $planId)->delete(db_prefix() . 'kt_saas_plan_features');
@@ -3587,6 +6075,9 @@ class Kt_saas_model extends App_Model
         }
 
         foreach ($integrationCatalog as $featureKey => $meta) {
+            if (strtolower((string) ($meta['module_name'] ?? '')) === 'dms') {
+                continue;
+            }
             $db->insert(db_prefix() . 'kt_saas_plan_features', [
                 'plan_id'     => $planId,
                 'module_name' => (string) ($meta['module_name'] ?? ''),
@@ -3595,6 +6086,7 @@ class Kt_saas_model extends App_Model
                 'created_at'  => date('Y-m-d H:i:s'),
             ]);
         }
+
     }
 
     public function rehydrate_all_plan_features()
@@ -3623,6 +6115,28 @@ class Kt_saas_model extends App_Model
         ]);
 
         return ['success' => true, 'processed' => $processed];
+    }
+
+    public function cleanup_plan_dms_feature_ownership(): array
+    {
+        $db = $this->landlord_db();
+        $table = db_prefix() . 'kt_saas_plan_features';
+
+        $db->group_start()
+            ->where('module_name', 'dms')
+            ->or_like('feature_key', 'dms.', 'after')
+            ->group_end();
+        $count = (int) $db->count_all_results($table);
+
+        if ($count > 0) {
+            $db->group_start()
+                ->where('module_name', 'dms')
+                ->or_like('feature_key', 'dms.', 'after')
+                ->group_end()
+                ->delete($table);
+        }
+
+        return ['success' => true, 'removed' => $count];
     }
 
     public function get_subscriptions()
@@ -4077,10 +6591,16 @@ class Kt_saas_model extends App_Model
         return $db->get()->result_array();
     }
 
+    private function is_core_tenant_provision_job($jobType): bool
+    {
+        return trim((string) $jobType) === 'provision_tenant';
+    }
+
     public function create_provision_job($tenantId, $jobType, array $payload)
     {
         $db = $this->landlord_db();
         $now = date('Y-m-d H:i:s');
+        $isCoreTenantProvision = $this->is_core_tenant_provision_job($jobType);
         if ($tenantId) {
             $tenant = $this->get_tenant((int) $tenantId);
             if ($tenant && (string) ($tenant['status'] ?? '') === 'archived') {
@@ -4093,6 +6613,28 @@ class Kt_saas_model extends App_Model
             }
         }
 
+        // A ready tenant must not be re-queued as a new core provisioning job.
+        // Explicit rebuild/reprovision flows use their own retry path.
+        if ($tenantId && $isCoreTenantProvision && empty($payload['allow_reprovision'])) {
+            $tenant = $tenant ?: $this->get_tenant((int) $tenantId);
+            if ($tenant
+                && strtolower(trim((string) ($tenant['status'] ?? ''))) === 'active'
+                && strtolower(trim((string) ($tenant['provisioning_status'] ?? ''))) === 'done'
+                && $this->tenantConnectionMetadataReady($tenant)
+            ) {
+                $completed = $db
+                    ->where('tenant_id', (int) $tenantId)
+                    ->where('job_type', $jobType)
+                    ->where_in('status', ['done', 'completed'])
+                    ->order_by('id', 'desc')
+                    ->limit(1)
+                    ->get(db_prefix() . 'kt_saas_provision_jobs')
+                    ->row_array();
+
+                return (int) ($completed['id'] ?? 0);
+            }
+        }
+
         $existing = $db
             ->where('tenant_id', $tenantId ?: null)
             ->where('job_type', $jobType)
@@ -4102,7 +6644,7 @@ class Kt_saas_model extends App_Model
             ->row_array();
 
         if ($existing) {
-            if ($tenantId) {
+            if ($tenantId && $isCoreTenantProvision) {
                 $db->where('id', (int) $tenantId)->update(db_prefix() . 'kt_saas_tenants', [
                     'provisioning_status' => $existing['status'] === 'running' ? 'running' : 'queued',
                     'updated_at'          => $now,
@@ -4127,7 +6669,7 @@ class Kt_saas_model extends App_Model
 
         $jobId = (int) $db->insert_id();
 
-        if ($tenantId) {
+        if ($tenantId && $isCoreTenantProvision) {
             $db->where('id', (int) $tenantId)->update(db_prefix() . 'kt_saas_tenants', [
                 'provisioning_status' => 'queued',
                 'updated_at'          => $now,
@@ -4151,6 +6693,7 @@ class Kt_saas_model extends App_Model
         if (!$job) {
             return false;
         }
+        $isCoreTenantProvision = $this->is_core_tenant_provision_job((string) ($job['job_type'] ?? ''));
 
         $db->where('id', (int) $jobId)->update(db_prefix() . 'kt_saas_provision_jobs', [
             'status'        => 'queued',
@@ -4162,7 +6705,7 @@ class Kt_saas_model extends App_Model
             'updated_at'    => date('Y-m-d H:i:s'),
         ]);
 
-        if (!empty($job['tenant_id'])) {
+        if (!empty($job['tenant_id']) && $isCoreTenantProvision) {
             $db->where('id', (int) $job['tenant_id'])->update(db_prefix() . 'kt_saas_tenants', [
                 'provisioning_status' => 'queued',
                 'updated_at'          => date('Y-m-d H:i:s'),
@@ -4190,6 +6733,7 @@ class Kt_saas_model extends App_Model
         if (!in_array((string) $job['status'], ['queued', 'failed'], true)) {
             return null;
         }
+        $isCoreTenantProvision = $this->is_core_tenant_provision_job((string) ($job['job_type'] ?? ''));
 
         $db->where('id', (int) $jobId)->update(db_prefix() . 'kt_saas_provision_jobs', [
             'status'     => 'running',
@@ -4199,7 +6743,7 @@ class Kt_saas_model extends App_Model
             'updated_at' => $now,
         ]);
 
-        if (!empty($job['tenant_id'])) {
+        if (!empty($job['tenant_id']) && $isCoreTenantProvision) {
             $db->where('id', (int) $job['tenant_id'])->update(db_prefix() . 'kt_saas_tenants', [
                 'provisioning_status' => 'running',
                 'last_provisioned_at' => $now,
@@ -4221,10 +6765,11 @@ class Kt_saas_model extends App_Model
         if (!$job) {
             return false;
         }
+        $isCoreTenantProvision = $this->is_core_tenant_provision_job((string) ($job['job_type'] ?? ''));
 
         $tenantReady = true;
         $tenantStatus = 'active';
-        if (!empty($job['tenant_id'])) {
+        if (!empty($job['tenant_id']) && $isCoreTenantProvision) {
             $tenant = $this->get_tenant((int) $job['tenant_id']);
             $tenantReady = $tenant ? $this->tenantConnectionMetadataReady($tenant) : false;
             $tenantStatus = $tenantReady ? $this->normalizeTenantActiveState((int) $job['tenant_id']) : 'draft';
@@ -4240,7 +6785,7 @@ class Kt_saas_model extends App_Model
             'updated_at'  => $now,
         ]);
 
-        if (!empty($job['tenant_id'])) {
+        if (!empty($job['tenant_id']) && $isCoreTenantProvision) {
             $db->where('id', (int) $job['tenant_id'])->update(db_prefix() . 'kt_saas_tenants', [
                 'provisioning_status' => $tenantReady ? 'done' : 'failed',
                 'status'              => $tenantStatus,
@@ -4256,7 +6801,7 @@ class Kt_saas_model extends App_Model
             'tenant_ready' => $tenantReady,
         ], !empty($job['tenant_id']) ? (int) $job['tenant_id'] : null);
 
-        if ($tenantReady && !empty($job['tenant_id'])) {
+        if ($tenantReady && !empty($job['tenant_id']) && $isCoreTenantProvision) {
             $tenant = $this->get_tenant((int) $job['tenant_id']);
             if ($tenant) {
                 $plan = !empty($tenant['plan_id']) ? $this->get_plan((int) $tenant['plan_id']) : null;
@@ -4369,6 +6914,7 @@ class Kt_saas_model extends App_Model
         if (!$job) {
             return false;
         }
+        $isCoreTenantProvision = $this->is_core_tenant_provision_job((string) ($job['job_type'] ?? ''));
 
         $storedResult = $this->redactProvisionOnboardingSecrets($result);
 
@@ -4380,7 +6926,7 @@ class Kt_saas_model extends App_Model
             'updated_at'    => $now,
         ]);
 
-        if (!empty($job['tenant_id'])) {
+        if (!empty($job['tenant_id']) && $isCoreTenantProvision) {
             $tenant = $this->get_tenant((int) $job['tenant_id']);
             $tenantStatus = $tenant && !$this->tenantConnectionMetadataReady($tenant) ? 'draft' : (($tenant['status'] ?? 'draft'));
             if (in_array($tenantStatus, ['active', 'trial', 'grace'], true)) {
@@ -4399,7 +6945,7 @@ class Kt_saas_model extends App_Model
             'error'     => $errorMessage,
         ], !empty($job['tenant_id']) ? (int) $job['tenant_id'] : null);
 
-        if (!empty($job['tenant_id'])) {
+        if (!empty($job['tenant_id']) && $isCoreTenantProvision) {
             $tenant = $this->get_tenant((int) $job['tenant_id']);
             if ($tenant) {
                 $plan = !empty($tenant['plan_id']) ? $this->get_plan((int) $tenant['plan_id']) : null;
@@ -4477,6 +7023,9 @@ class Kt_saas_model extends App_Model
         $jobs = $this->db->order_by('id', 'asc')->get(db_prefix() . 'kt_saas_provision_jobs')->result_array();
         foreach ($jobs as $job) {
             $jobId = (int) $job['id'];
+            if (!$this->is_core_tenant_provision_job((string) ($job['job_type'] ?? ''))) {
+                continue;
+            }
             $tenant = !empty($job['tenant_id']) ? $this->get_tenant((int) $job['tenant_id']) : null;
             $tenantReady = $tenant ? $this->tenantConnectionMetadataReady($tenant) : false;
             $resultJson = trim((string) ($job['result_json'] ?? ''));
@@ -4489,6 +7038,7 @@ class Kt_saas_model extends App_Model
             if (!empty($job['tenant_id'])) {
                 $tenantHasCompletedJob = $this->db
                     ->where('tenant_id', (int) $job['tenant_id'])
+                    ->where('job_type', 'provision_tenant')
                     ->where('status', 'done')
                     ->where('id !=', $jobId)
                     ->count_all_results(db_prefix() . 'kt_saas_provision_jobs') > 0;
@@ -4538,6 +7088,7 @@ class Kt_saas_model extends App_Model
 
             $openJob = $db
                 ->where('tenant_id', $tenantId)
+                ->where('job_type', 'provision_tenant')
                 ->where_in('status', ['queued', 'running'])
                 ->order_by('id', 'desc')
                 ->get(db_prefix() . 'kt_saas_provision_jobs')
@@ -4814,7 +7365,7 @@ class Kt_saas_model extends App_Model
         }
     }
 
-    private function tenantConnectionMetadataReady(array $tenant)
+    public function tenantConnectionMetadataReady(array $tenant)
     {
         return trim((string) ($tenant['db_name'] ?? '')) !== ''
             && trim((string) ($tenant['db_host'] ?? '')) !== ''
@@ -6109,7 +8660,99 @@ class Kt_saas_model extends App_Model
     {
         $landlordDb = $this->config->item('kt_saas_landlord_db');
 
-        return $landlordDb ?: $this->db;
+        if ($landlordDb && $landlordDb->table_exists(db_prefix() . 'kt_saas_tenants')) {
+            return $landlordDb;
+        }
+
+        if ($this->db->table_exists(db_prefix() . 'kt_saas_tenants')) {
+            $this->config->set_item('kt_saas_landlord_db', $this->db);
+            return $this->db;
+        }
+
+        $database = $this->discover_landlord_database_name();
+        $config = [
+            'dsn'          => '',
+            'hostname'     => APP_DB_HOSTNAME,
+            'username'     => APP_DB_USERNAME,
+            'password'     => APP_DB_PASSWORD,
+            'database'     => $database,
+            'dbdriver'     => defined('APP_DB_DRIVER') ? APP_DB_DRIVER : 'mysqli',
+            'dbprefix'     => db_prefix(),
+            'pconnect'     => false,
+            'db_debug'     => (ENVIRONMENT !== 'production'),
+            'cache_on'     => false,
+            'cachedir'     => '',
+            'char_set'     => defined('APP_DB_CHARSET') ? APP_DB_CHARSET : 'utf8mb4',
+            'dbcollat'     => defined('APP_DB_COLLATION') ? APP_DB_COLLATION : 'utf8mb4_unicode_ci',
+            'swap_pre'     => '',
+            'encrypt'      => defined('APP_DB_ENCRYPT') ? APP_DB_ENCRYPT : false,
+            'compress'     => false,
+            'stricton'     => false,
+            'failover'     => [],
+            'save_queries' => true,
+        ];
+        $db = $this->load->database($config, true);
+        $this->config->set_item('kt_saas_landlord_db', $db);
+
+        return $db;
+    }
+
+    private function discover_landlord_database_name()
+    {
+        $candidates = [];
+
+        foreach (['KT_SAAS_LANDLORD_DB_NAME', 'LANDLORD_DB_NAME', 'APP_LANDLORD_DB_NAME'] as $envKey) {
+            $value = trim((string) getenv($envKey));
+            if ($value !== '') {
+                $candidates[] = $value;
+            }
+        }
+
+        foreach (['khachtot', 'crm', defined('APP_DB_NAME') ? (string) APP_DB_NAME : ''] as $value) {
+            $value = trim((string) $value);
+            if ($value !== '') {
+                $candidates[] = $value;
+            }
+        }
+
+        $candidates = array_values(array_unique($candidates));
+        $currentDatabase = isset($this->db->database) ? strtolower((string) $this->db->database) : '';
+
+        foreach ($candidates as $database) {
+            if (strtolower((string) $database) === $currentDatabase) {
+                continue;
+            }
+
+            $config = [
+                'dsn'          => '',
+                'hostname'     => APP_DB_HOSTNAME,
+                'username'     => APP_DB_USERNAME,
+                'password'     => APP_DB_PASSWORD,
+                'database'     => $database,
+                'dbdriver'     => defined('APP_DB_DRIVER') ? APP_DB_DRIVER : 'mysqli',
+                'dbprefix'     => db_prefix(),
+                'pconnect'     => false,
+                'db_debug'     => false,
+                'cache_on'     => false,
+                'cachedir'     => '',
+                'char_set'     => defined('APP_DB_CHARSET') ? APP_DB_CHARSET : 'utf8mb4',
+                'dbcollat'     => defined('APP_DB_COLLATION') ? APP_DB_COLLATION : 'utf8mb4_unicode_ci',
+                'swap_pre'     => '',
+                'encrypt'      => defined('APP_DB_ENCRYPT') ? APP_DB_ENCRYPT : false,
+                'compress'     => false,
+                'stricton'     => false,
+                'failover'     => [],
+                'save_queries' => true,
+            ];
+
+            $db = $this->load->database($config, true);
+            if ($db && $db->table_exists(db_prefix() . 'kt_saas_tenants')) {
+                $this->config->set_item('kt_saas_landlord_db', $db);
+                return $database;
+            }
+        }
+
+        return defined('APP_DB_NAME') ? APP_DB_NAME : '';
     }
 
     private function tenant_option($name, $default = '')

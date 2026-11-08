@@ -68,7 +68,7 @@ if (!empty($generated_secret_connection_id)) {
                         </div>
 
                         <?php foreach ($providers as $provider) { ?>
-                            <div class="kt-provider-panel" data-provider-panel="<?php echo html_escape($provider['provider_code']); ?>" style="display:none;">
+                            <div class="kt-provider-panel" data-provider-panel="<?php echo html_escape($provider['provider_code']); ?>" data-doc-slug="<?php echo html_escape(kt_integration_hub_provider_doc_slug($provider['provider_code'])); ?>" style="display:none;">
                                 <div class="alert alert-<?php echo ($provider['readiness_status'] ?? '') === 'ready' ? 'success' : 'info'; ?>">
                                     <strong><?php echo html_escape($provider['provider_name']); ?></strong>
                                     <div class="mtop5">

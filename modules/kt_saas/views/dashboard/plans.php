@@ -62,6 +62,20 @@
                         $integrationFeatureCatalog = is_array($integration_feature_catalog ?? null) ? $integration_feature_catalog : [];
                         $selectedIntegrationFeatures = is_array($edit_plan_integration_features ?? null) ? $edit_plan_integration_features : [];
                         $selected_modules = isset($edit_plan['module_json']) ? json_decode($edit_plan['module_json'], true) ?: [] : [];
+                        $integrationFeatureGroups = [];
+                        foreach ($integrationFeatureCatalog as $featureKey => $feature) {
+                            $moduleName = strtolower((string) ($feature['module_name'] ?? 'integration'));
+                            if ($moduleName === 'dms') {
+                                continue;
+                            }
+                            if ($moduleName === '') {
+                                $moduleName = 'integration';
+                            }
+                            if (!isset($integrationFeatureGroups[$moduleName])) {
+                                $integrationFeatureGroups[$moduleName] = [];
+                            }
+                            $integrationFeatureGroups[$moduleName][$featureKey] = $feature;
+                        }
                         ?>
 
                         <div class="panel panel-default">
@@ -108,11 +122,17 @@
                                     <div class="col-md-6">
                                         <label class="control-label">Integration module capabilities</label>
                                         <div class="panel panel-default"><div class="panel-body" style="max-height:250px;overflow:auto;">
-                                        <?php foreach ($integrationFeatureCatalog as $featureKey => $feature) { ?>
-                                            <div class="checkbox checkbox-primary">
-                                                <input type="checkbox" id="integration_feature_<?php echo html_escape(md5($featureKey)); ?>" name="integration_feature_keys[]" value="<?php echo html_escape($featureKey); ?>" <?php echo in_array($featureKey, $selectedIntegrationFeatures, true) ? 'checked' : ''; ?>>
-                                                <label for="integration_feature_<?php echo html_escape(md5($featureKey)); ?>"><?php echo html_escape((string) ($feature['label'] ?? $featureKey)); ?></label>
-                                            </div>
+                                        <?php foreach ($integrationFeatureGroups as $groupName => $features) { ?>
+                                            <div class="text-uppercase text-muted small mtop5"><?php echo html_escape(str_replace('_', ' ', $groupName)); ?></div>
+                                            <?php foreach ($features as $featureKey => $feature) { ?>
+                                                <div class="checkbox checkbox-primary">
+                                                    <input type="checkbox" id="integration_feature_<?php echo html_escape(md5($featureKey)); ?>" name="integration_feature_keys[]" value="<?php echo html_escape($featureKey); ?>" <?php echo in_array($featureKey, $selectedIntegrationFeatures, true) ? 'checked' : ''; ?>>
+                                                    <label for="integration_feature_<?php echo html_escape(md5($featureKey)); ?>"><?php echo html_escape((string) ($feature['label'] ?? $featureKey)); ?></label>
+                                                </div>
+                                            <?php } ?>
+                                        <?php } ?>
+                                        <?php if (empty($integrationFeatureCatalog)) { ?>
+                                            <div class="text-muted small"><?php echo _l('kt_saas_no_records'); ?></div>
                                         <?php } ?>
                                         </div></div>
                                     </div>

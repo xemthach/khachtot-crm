@@ -9,6 +9,10 @@
   runtime directory/file dùng 750/640, cần owner PHP-FPM phù hợp.
 - Diagnostic không tự in log có thể chứa thông tin nhạy cảm.
 - Test loopback HTTP và setup chạy lại trên cây tạm; hướng dẫn deployment mới.
+- Follow-up clean clone: thêm `setup-live.sh --fresh-install` không tạo config
+  trước installer; từ chối fresh mode khi deployment đã có config.
+- Guide bổ sung cài dependency backup từ lock và phân biệt install/upgrade;
+  ghi nhận build RC thất bại, không coi asset local là artifact đã được release.
 - Không migrate DB, bật provider, sửa schema hoặc source Salesrep DMS.
 
 Blocker: installer SQL không nằm trong HEAD Git; worktree và checkout chưa tương

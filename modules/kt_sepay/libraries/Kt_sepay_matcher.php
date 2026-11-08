@@ -47,7 +47,9 @@ class Kt_sepay_matcher
         $candidates = $this->extractCandidateReferences($payload);
 
         foreach ($candidates as $candidate) {
-            $request = $this->CI->Kt_sepay_model->get_payment_request_by_reference($candidate, $tenantId);
+            $request = $tenantId === null
+                ? $this->CI->Kt_sepay_model->get_payment_request_by_reference_any_owner($candidate)
+                : $this->CI->Kt_sepay_model->get_payment_request_by_reference($candidate, $tenantId);
             if ($request) {
                 return [
                     'matched'           => true,

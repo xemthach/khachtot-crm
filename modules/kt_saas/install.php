@@ -165,6 +165,62 @@ $tables = [
         KEY `invoice_id_idx` (`invoice_id`),
         KEY `status_idx` (`status`)
     ) ENGINE=InnoDB DEFAULT CHARSET=%s;",
+    'kt_saas_dms_orders' => "CREATE TABLE `%skt_saas_dms_orders` (
+        `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        `tenant_id` BIGINT UNSIGNED NOT NULL,
+        `crm_company_id` BIGINT UNSIGNED NULL,
+        `tenant_slug` VARCHAR(191) NOT NULL,
+        `package_code` VARCHAR(120) NOT NULL,
+        `package_name` VARCHAR(191) NOT NULL,
+        `billing_cycle` VARCHAR(30) NOT NULL,
+        `amount` DECIMAL(15,2) NOT NULL DEFAULT 0,
+        `currency` VARCHAR(10) NOT NULL DEFAULT 'VND',
+        `invoice_id` BIGINT UNSIGNED NULL,
+        `payment_provider` VARCHAR(50) NULL,
+        `payment_reference` VARCHAR(128) NULL,
+        `payment_url` TEXT NULL,
+        `status` VARCHAR(40) NOT NULL DEFAULT 'draft',
+        `payment_status` VARCHAR(40) NOT NULL DEFAULT 'payment_pending',
+        `verification_status` VARCHAR(40) NOT NULL DEFAULT 'pending',
+        `subscription_status` VARCHAR(40) NOT NULL DEFAULT 'pending',
+        `provisioning_status` VARCHAR(40) NOT NULL DEFAULT 'not_started',
+        `workspace_status` VARCHAR(40) NOT NULL DEFAULT 'not_ready',
+        `provision_job_id` BIGINT UNSIGNED NULL,
+        `last_payment_checked_at` DATETIME NULL,
+        `blocked_reason` TEXT NULL,
+        `metadata_json` LONGTEXT NULL,
+        `created_by` INT NULL,
+        `created_at` DATETIME NOT NULL,
+        `updated_at` DATETIME NOT NULL,
+        `activated_at` DATETIME NULL,
+        `cancelled_at` DATETIME NULL,
+        `idempotency_key` VARCHAR(128) NOT NULL,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `dms_order_idempotency_unique` (`idempotency_key`),
+        UNIQUE KEY `dms_order_invoice_unique` (`invoice_id`),
+        KEY `dms_order_tenant_idx` (`tenant_id`),
+        KEY `dms_order_status_idx` (`status`),
+        KEY `dms_order_payment_idx` (`payment_status`, `verification_status`),
+        KEY `dms_order_provision_idx` (`provisioning_status`, `workspace_status`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=%s;",
+    'kt_saas_dms_order_events' => "CREATE TABLE `%skt_saas_dms_order_events` (
+        `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        `order_id` BIGINT UNSIGNED NOT NULL,
+        `tenant_id` BIGINT UNSIGNED NOT NULL,
+        `event_key` VARCHAR(80) NOT NULL,
+        `event_status` VARCHAR(40) NULL,
+        `message` VARCHAR(255) NOT NULL,
+        `actor_type` VARCHAR(30) NOT NULL DEFAULT 'system',
+        `actor_id` BIGINT NULL,
+        `dedupe_key` VARCHAR(160) NOT NULL,
+        `context_json` LONGTEXT NULL,
+        `created_at` DATETIME NOT NULL,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `dms_order_event_dedupe_unique` (`order_id`, `dedupe_key`),
+        KEY `dms_order_event_order_idx` (`order_id`),
+        KEY `dms_order_event_tenant_idx` (`tenant_id`),
+        KEY `dms_order_event_created_idx` (`created_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=%s;",
     'kt_saas_domains' => "CREATE TABLE `%skt_saas_domains` (
         `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         `tenant_id` BIGINT UNSIGNED NOT NULL,
@@ -378,6 +434,30 @@ $invoiceColumns = [
 
 foreach ($invoiceColumns as $column => $sql) {
     if ($CI->db->table_exists($invoiceTable) && !$CI->db->field_exists($column, $invoiceTable)) {
+        $CI->db->query($sql);
+    }
+}
+
+$tenantTable = db_prefix() . 'kt_saas_tenants';
+$tenantColumns = [
+    'landlord_client_id' => "ALTER TABLE `{$tenantTable}` ADD `landlord_client_id` BIGINT UNSIGNED NULL AFTER `plan_id`",
+    'landlord_contact_id' => "ALTER TABLE `{$tenantTable}` ADD `landlord_contact_id` BIGINT UNSIGNED NULL AFTER `landlord_client_id`",
+];
+
+foreach ($tenantColumns as $column => $sql) {
+    if ($CI->db->table_exists($tenantTable) && !$CI->db->field_exists($column, $tenantTable)) {
+        $CI->db->query($sql);
+    }
+}
+
+$tenantIndexes = [
+    'landlord_client_id_idx' => "ALTER TABLE `{$tenantTable}` ADD KEY `landlord_client_id_idx` (`landlord_client_id`)",
+    'landlord_contact_id_idx' => "ALTER TABLE `{$tenantTable}` ADD KEY `landlord_contact_id_idx` (`landlord_contact_id`)",
+];
+
+foreach ($tenantIndexes as $indexName => $sql) {
+    $exists = $CI->db->query("SHOW INDEX FROM `{$tenantTable}` WHERE Key_name = " . $CI->db->escape($indexName))->row_array();
+    if (!$exists) {
         $CI->db->query($sql);
     }
 }

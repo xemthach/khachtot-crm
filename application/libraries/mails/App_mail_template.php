@@ -106,6 +106,12 @@ class App_mail_template
         $this->template = $this->prepare();
 
         if ($this->is_user_inactive()) {
+            hooks()->do_action('failed_to_send_email_template', [
+                 'template'     => $this->template,
+                 'send_to'      => $this->send_to,
+                 'merge_fields' => $this->merge_fields,
+                 'error'        => 'recipient_inactive',
+               ]);
             return false;
         }
 
@@ -114,6 +120,12 @@ class App_mail_template
          */
         if (!$this->template) {
             log_activity('Failed to send email template [Template Not Found]');
+            hooks()->do_action('failed_to_send_email_template', [
+                 'template'     => null,
+                 'send_to'      => $this->send_to,
+                 'merge_fields' => $this->merge_fields,
+                 'error'        => 'template_not_found',
+               ]);
             $this->clear();
 
             return false;
@@ -128,6 +140,7 @@ class App_mail_template
                  'template'     => $this->template,
                  'send_to'      => $this->send_to,
                  'merge_fields' => $this->merge_fields,
+                 'error'        => 'template_inactive_or_invalid_recipient',
                ]);
 
             $this->clear();
@@ -171,6 +184,12 @@ class App_mail_template
         $this->attachments = $hook_data['attachments'];
 
         if (isset($this->template->prevent_sending) && $this->template->prevent_sending == true) {
+            hooks()->do_action('failed_to_send_email_template', [
+                'template'     => $this->template,
+                'send_to'      => $this->send_to,
+                'merge_fields' => $this->merge_fields,
+                'error'        => 'prevent_sending',
+            ]);
             $this->clear();
 
             return false;
@@ -344,6 +363,11 @@ class App_mail_template
             }
         }
 
+        $encodedRequest = json_encode($request, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($encodedRequest === false) {
+            return ['success' => false, 'message' => 'Unable to encode Brevo payload.'];
+        }
+
         $ch = curl_init('https://api.brevo.com/v3/smtp/email');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -352,7 +376,7 @@ class App_mail_template
             'content-type: application/json',
             'api-key: ' . $apiKey,
         ]);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($request));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $encodedRequest);
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
         $response = curl_exec($ch);
         $error = curl_error($ch);

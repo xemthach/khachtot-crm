@@ -57,6 +57,82 @@ class Kt_landing_public extends App_Controller
         }
     }
 
+    public function marketing($page = 'crm')
+    {
+        $this->bootPublicLanding();
+        if ($this->isTenantRuntime()) {
+            show_404();
+            return;
+        }
+
+        $pages = $this->marketingPages();
+        if (!isset($pages[$page])) {
+            show_404();
+            return;
+        }
+        $data = $pages[$page];
+        $data['page_key'] = $page;
+        $data['canonical_url'] = rtrim((string) APP_BASE_URL, '/') . '/' . ltrim((string) $data['path'], '/');
+        $data['image_url'] = module_dir_url(KT_LANDING_MODULE, 'assets/images/crm-dms-overview.png');
+        $this->output->set_content_type('text/html', 'UTF-8');
+        $this->output->set_output($this->load->view(KT_LANDING_MODULE . '/public/seo_marketing', $data, true));
+    }
+
+    public function login_entry()
+    {
+        $this->bootPublicLanding();
+        $data = [
+            'title' => 'Đăng nhập Khách Tốt CRM',
+            'canonical_url' => rtrim((string) APP_BASE_URL, '/') . '/crm',
+            'crm_login_url' => site_url('admin/authentication'),
+            'customer_login_url' => site_url('clients/login'),
+        ];
+        $this->output->set_content_type('text/html', 'UTF-8');
+        $this->output->set_output($this->load->view(KT_LANDING_MODULE . '/public/login_entry', $data, true));
+    }
+
+    public function robots()
+    {
+        if ($this->isTenantRuntime()) {
+            $content = "User-agent: *\nDisallow: /\n";
+        } else {
+            $content = "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /clients\nDisallow: /api\nDisallow: /sso\nDisallow: /webhook\nDisallow: /cron\nDisallow: /uploads\nSitemap: " . rtrim((string) APP_BASE_URL, '/') . "/sitemap.xml\n";
+        }
+        $this->output->set_content_type('text/plain', 'UTF-8')->set_output($content);
+    }
+
+    public function sitemap()
+    {
+        if ($this->isTenantRuntime()) {
+            show_404();
+            return;
+        }
+        $base = rtrim((string) APP_BASE_URL, '/');
+        $paths = ['', '/crm', '/features', '/dms', '/bang-gia', '/crm-ban-hang', '/crm-cham-soc-khach-hang', '/dms-quan-ly-sales-thi-truong', '/quan-ly-don-hang-hoa-don-thanh-toan', '/quan-ly-ton-kho-san-pham', '/lien-he'];
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+        $xml .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+        foreach ($paths as $path) {
+            $xml .= '  <url><loc>' . html_escape($base . ($path ?: '/')) . '</loc><changefreq>monthly</changefreq></url>' . "\n";
+        }
+        $xml .= '</urlset>';
+        $this->output->set_content_type('application/xml', 'UTF-8')->set_output($xml);
+    }
+
+    private function marketingPages()
+    {
+        return [
+            'crm' => ['path' => 'crm', 'title' => 'Phần mềm CRM Việt Nam cho doanh nghiệp vừa và nhỏ', 'description' => 'Khách Tốt CRM giúp quản lý khách hàng, bán hàng, hóa đơn, thanh toán và mở rộng DMS cho đội sales thị trường.', 'h1' => 'CRM Khách Tốt cho doanh nghiệp vừa và nhỏ', 'lead' => 'Một nơi để quản lý khách hàng, bán hàng, hóa đơn, thanh toán và dữ liệu vận hành từ đội sales thị trường.'],
+            'features' => ['path' => 'features', 'title' => 'Tính năng CRM và DMS Khách Tốt', 'description' => 'Tổng hợp tính năng CRM bán hàng, khách hàng, hóa đơn, thanh toán, DMS, điểm bán, đơn hàng và tồn kho hiện có.', 'h1' => 'Tính năng CRM và DMS theo đúng quy trình', 'lead' => 'Chọn đúng module cần dùng, giữ dữ liệu chung và mở rộng theo giai đoạn thay vì ghép nhiều công cụ rời rạc.'],
+            'dms' => ['path' => 'dms', 'title' => 'Phần mềm DMS quản lý sales thị trường', 'description' => 'DMS là add-on của CRM Khách Tốt cho điểm bán, check-in, lịch viếng thăm, đơn hàng, bản đồ và phản ánh thị trường.', 'h1' => 'DMS quản lý đội sales thị trường', 'lead' => 'Nhân viên làm việc trên workspace DMS; chủ doanh nghiệp và quản lý xem dữ liệu vận hành đã đồng bộ trong CRM.'],
+            'crm-sales' => ['path' => 'crm-ban-hang', 'title' => 'CRM bán hàng và quản lý cơ hội', 'description' => 'Theo dõi khách hàng, cơ hội, giao dịch và công việc bán hàng trong một hệ thống CRM dành cho doanh nghiệp Việt Nam.', 'h1' => 'CRM bán hàng rõ từ khách hàng đến giao dịch', 'lead' => 'Tập trung thông tin khách hàng, hoạt động bán hàng và việc cần xử lý để đội ngũ phối hợp nhất quán.'],
+            'customer-care' => ['path' => 'crm-cham-soc-khach-hang', 'title' => 'Phần mềm quản lý và chăm sóc khách hàng', 'description' => 'Lưu lịch sử khách hàng, công việc, hợp đồng và hỗ trợ chăm sóc sau bán trong CRM Khách Tốt.', 'h1' => 'Chăm sóc khách hàng với dữ liệu liền mạch', 'lead' => 'Giữ thông tin và lịch sử làm việc tại một nơi để đội bán hàng và chăm sóc khách hàng không bỏ sót ngữ cảnh.'],
+            'field-sales' => ['path' => 'dms-quan-ly-sales-thi-truong', 'title' => 'Quản lý sales thị trường, check-in và điểm bán', 'description' => 'Giao điểm bán, theo dõi check-in, lịch viếng thăm, vị trí và phản ánh thị trường theo nhân viên và đội sales.', 'h1' => 'Quản lý sales thị trường theo ngày', 'lead' => 'Biết ai đang hoạt động, điểm bán nào đã ghé và việc nào cần quản lý xử lý mà không lộ dữ liệu ngoài phạm vi.'],
+            'commerce' => ['path' => 'quan-ly-don-hang-hoa-don-thanh-toan', 'title' => 'Quản lý đơn hàng, hóa đơn và thanh toán', 'description' => 'Đơn hàng DMS được duyệt và liên kết hóa đơn CRM; CRM giữ dữ liệu thanh toán chính thức và công nợ.', 'h1' => 'Đơn hàng, hóa đơn và thanh toán trong một luồng', 'lead' => 'Sales tạo đơn tại điểm bán, quản lý duyệt, CRM tạo hóa đơn và DMS đọc lại trạng thái thanh toán.'],
+            'inventory' => ['path' => 'quan-ly-ton-kho-san-pham', 'title' => 'Quản lý tồn kho, sản phẩm và điểm bán', 'description' => 'Đồng bộ sản phẩm, theo dõi tồn kho theo điểm bán, cảnh báo sắp hết và tác động của đơn hàng.', 'h1' => 'Sản phẩm và tồn kho gắn với điểm bán', 'lead' => 'Đội sales làm việc với danh mục đúng doanh nghiệp; quản trị theo dõi tình trạng tồn kho bằng dữ liệu đã đồng bộ.'],
+            'contact' => ['path' => 'lien-he', 'title' => 'Liên hệ triển khai CRM và DMS Khách Tốt', 'description' => 'Trao đổi nhu cầu CRM, DMS, số lượng nhân sự, điểm bán và lộ trình triển khai phù hợp với doanh nghiệp.', 'h1' => 'Trao đổi lộ trình triển khai Khách Tốt', 'lead' => 'Cho chúng tôi biết quy mô đội ngũ và quy trình cần kiểm soát để xác định phạm vi CRM/DMS phù hợp.'],
+        ];
+    }
+
     public function signup()
     {
         try {
@@ -1293,6 +1369,15 @@ class Kt_landing_public extends App_Controller
         }
 
         $tenantId = (int) $tenant['id'];
+        $landlordLinkage = $this->Kt_saas_model->ensure_landlord_client_contact($tenantId);
+        if (empty($landlordLinkage['success'])) {
+            return [
+                'success' => false,
+                'message' => (string) ($landlordLinkage['message'] ?? 'Khong the tao landlord client/contact cho tenant signup.'),
+                'tenant_code' => (string) ($tenant['tenant_code'] ?? ''),
+            ];
+        }
+
         $this->Kt_saas_model->log_activity('landing.signup_accepted', 'info', [
             'tenant_id' => $tenantId,
             'plan_id' => $planId,
@@ -1300,6 +1385,8 @@ class Kt_landing_public extends App_Controller
             'desired_subdomain' => $desiredSubdomain,
             'addons' => implode(',', $selectedAddons),
             'is_new_tenant' => $isNewTenant ? 1 : 0,
+            'landlord_client_id' => (int) ($landlordLinkage['landlord_client_id'] ?? 0),
+            'landlord_contact_id' => (int) ($landlordLinkage['landlord_contact_id'] ?? 0),
         ], $tenantId);
 
         $this->db

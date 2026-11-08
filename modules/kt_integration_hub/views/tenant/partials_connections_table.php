@@ -36,7 +36,9 @@
                     </td>
                     <td class="text-right">
                         <a href="<?php echo admin_url('kt_integration_hub/connections/' . (int) $connection['id']); ?>" class="btn btn-default btn-sm"><?php echo _l('edit'); ?></a>
-                        <a href="<?php echo admin_url('kt_integration_hub/disconnect/' . (int) $connection['id']); ?>" class="btn btn-danger btn-sm _delete"><?php echo _l('kt_integration_hub_disconnect'); ?></a>
+                        <?php echo form_open(admin_url('kt_integration_hub/disconnect/' . (int) $connection['id']), ['class' => 'tw-inline']); ?>
+                        <button type="submit" class="btn btn-danger btn-sm _delete"><?php echo _l('kt_integration_hub_disconnect'); ?></button>
+                        <?php echo form_close(); ?>
                     </td>
                 </tr>
             <?php } ?>

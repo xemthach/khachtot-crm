@@ -17,7 +17,7 @@ class Verification extends ClientsController
         $this->layout();
     }
 
-    public function verify($id, $key)
+    public function verify($id, $key = '')
     {
         $contact = $this->clients_model->get_contact($id);
 
@@ -30,15 +30,25 @@ class Verification extends ClientsController
             redirect(site_url('clients'));
         }
 
-        if ($contact->email_verification_key !== $key) {
-            show_error(_l('invalid_verification_key'));
+        if ($key === '' || $contact->email_verification_key !== $key) {
+            return $this->renderVerificationFailure(
+                403,
+                _l('invalid_verification_key'),
+                'authentication/login',
+                _l('clients_login_heading_no_register')
+            );
         }
 
         $timestamp_now_minus_2_days = time() - (2 * 86400);
         $contact_registered         = strtotime($contact->email_verification_sent_at);
 
         if ($timestamp_now_minus_2_days > $contact_registered) {
-            show_error(_l('verification_key_expired'));
+            return $this->renderVerificationFailure(
+                410,
+                _l('verification_key_expired'),
+                'authentication/login',
+                _l('clients_login_heading_no_register')
+            );
         }
 
         $this->clients_model->mark_email_as_verified($contact->id);
@@ -72,5 +82,24 @@ class Verification extends ClientsController
         }
 
         redirect(site_url('verification'));
+    }
+
+    private function renderVerificationFailure($statusCode, $message, $ctaUri, $ctaLabel)
+    {
+        $data['title'] = _l('email_verification_required');
+        $data['verification_heading'] = $message;
+        $data['verification_message'] = $statusCode === 410
+            ? 'Liên kết xác minh đã hết hạn. Vui lòng đăng nhập để gửi lại email xác minh.'
+            : 'Liên kết xác minh không hợp lệ. Vui lòng đăng nhập để yêu cầu email xác minh mới.';
+        $data['verification_alert_class'] = 'danger';
+        $data['verification_cta_url'] = site_url($ctaUri);
+        $data['verification_cta_label'] = $ctaLabel;
+
+        $this->output->set_status_header((int) $statusCode);
+        $this->view('verification_required');
+        $this->data($data);
+        $this->layout();
+
+        return;
     }
 }

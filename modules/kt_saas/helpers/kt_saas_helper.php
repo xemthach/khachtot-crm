@@ -2,6 +2,10 @@
 
 defined('BASEPATH') or exit('No direct script access allowed');
 
+if (!defined('KT_SAAS_MODULE')) {
+    define('KT_SAAS_MODULE', 'kt_saas');
+}
+
 if (!function_exists('kt_saas_is_module_request')) {
     function kt_saas_is_module_request()
     {

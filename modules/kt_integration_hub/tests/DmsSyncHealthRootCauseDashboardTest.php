@@ -1,0 +1,1 @@
+<?php defined('BASEPATH') or define('BASEPATH',__DIR__);$s=file_get_contents(dirname(__DIR__).'/views/admin/dms/sync_health.php');foreach(['Nguyên nhân','Bước xử lý tiếp theo','Bản ghi ảnh hưởng','Owner','Thử lại đồng bộ','form_open']as$n)if(strpos($s,$n)===false)throw new RuntimeException($n);echo"DmsSyncHealthRootCauseDashboardTest passed.\n";

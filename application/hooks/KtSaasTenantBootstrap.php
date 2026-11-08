@@ -51,20 +51,24 @@ class KtSaasTenantBootstrap
         }
 
         require_once $moduleRoot . 'tenant_bootstrap' . DIRECTORY_SEPARATOR . 'TenantResolver.php';
-        require_once $moduleRoot . 'tenant_bootstrap' . DIRECTORY_SEPARATOR . 'DatabaseSwitcher.php';
+        require_once $moduleRoot . 'tenant_bootstrap' . DIRECTORY_SEPARATOR . 'TenantHttpDatabaseLifecycle.php';
         require_once $moduleRoot . 'services' . DIRECTORY_SEPARATOR . 'TenantEntitlementService.php';
         require_once $moduleRoot . 'services' . DIRECTORY_SEPARATOR . 'TenantContextService.php';
 
-        $resolver = new TenantResolver();
-        $tenant = $resolver->resolveByHost($this->currentHost());
-        if (!$tenant || empty($tenant['resolved'])) {
-            $this->trace('handle:tenant_not_resolved');
+        $uri = uri_string();
+        $lifecycle = new TenantHttpDatabaseLifecycle($CI);
+        $start = $lifecycle->start($this->currentHost());
+        if (!empty($start['landlord'])) return;
+        if (empty($start['switched'])) {
+            $this->trace('handle:tenant_bootstrap_failed reason=' . (string) ($start['reason'] ?? 'unknown'));
+            if (!empty($start['tenant']) && ($start['reason'] ?? '') === 'tenant_disabled') $this->renderTenantUnavailable($start['tenant']);
+            $this->renderBootstrapFailure((int) ($start['http_status'] ?? 503));
             return;
         }
+        $tenant = $start['tenant'];
 
         $this->trace('handle:tenant_resolved id=' . (int) ($tenant['id'] ?? 0) . ' code=' . (string) ($tenant['tenant_code'] ?? '') . ' status=' . (string) ($tenant['status'] ?? '') . ' prov=' . (string) ($tenant['provisioning_status'] ?? ''));
 
-        $uri = uri_string();
         if (!$this->tenantCanServeRequests($tenant, $uri)) {
             $this->trace('handle:tenant_unavailable uri=' . $uri);
             $this->renderTenantUnavailable($tenant);
@@ -76,14 +80,7 @@ class KtSaasTenantBootstrap
             $this->renderLandlordOnlyCoreRouteForbidden($CI, $uri);
         }
 
-        $switcher = new DatabaseSwitcher();
-        $switchResult = $switcher->switchConnection($tenant);
-        if (empty($switchResult['switched'])) {
-            $this->trace('handle:switch_failed message=' . (string) ($switchResult['message'] ?? 'unknown'));
-            log_message('error', 'KT SaaS database switch failed for tenant [' . ($tenant['tenant_code'] ?? 'unknown') . ']: ' . ($switchResult['message'] ?? 'unknown error'));
-            return;
-        }
-        $this->trace('handle:switch_ok db=' . (string) ($switchResult['database'] ?? 'unknown'));
+        $this->trace('handle:switch_ok db=' . (string) ($start['database'] ?? 'unknown'));
 
         $entitlements = new TenantEntitlementService();
         $routeAccess = $entitlements->canAccessRequestUri($uri, $tenant);
@@ -194,6 +191,15 @@ class KtSaasTenantBootstrap
             echo $this->fallbackTenantStatusHtml($data);
         }
 
+        exit;
+    }
+
+    protected function renderBootstrapFailure($status)
+    {
+        $status = in_array((int) $status, [403, 404, 503], true) ? (int) $status : 503;
+        set_status_header($status);
+        header('Content-Type: application/json; charset=UTF-8');
+        echo json_encode(['success' => false, 'error_code' => $status === 404 ? 'TENANT_NOT_FOUND' : ($status === 403 ? 'TENANT_UNAVAILABLE' : 'TENANT_RUNTIME_UNAVAILABLE')]);
         exit;
     }
 

@@ -1,0 +1,1 @@
+<?php defined('BASEPATH') or define('BASEPATH',__DIR__);$s=file_get_contents(dirname(__DIR__).'/models/Kt_integration_model.php');foreach(['queue_all_dms_domain_sync_jobs','customer','product','last_successful_sync_at','last_job_status']as$n)if(strpos($s,$n)===false)throw new RuntimeException($n);echo"DmsDataSyncPipelineHealthTest passed.\n";

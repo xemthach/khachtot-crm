@@ -10,9 +10,15 @@ Requires at least: 3.0.*
 Author: Internal Engineering
 */
 
-define('KT_SAAS_MODULE', 'kt_saas');
-define('KT_SAAS_VERSION', '0.2.2');
-define('KT_SAAS_ASSETS_URL', module_dir_url(KT_SAAS_MODULE, 'assets/'));
+if (!defined('KT_SAAS_MODULE')) {
+    define('KT_SAAS_MODULE', 'kt_saas');
+}
+if (!defined('KT_SAAS_VERSION')) {
+    define('KT_SAAS_VERSION', '0.2.2');
+}
+if (!defined('KT_SAAS_ASSETS_URL')) {
+    define('KT_SAAS_ASSETS_URL', module_dir_url(KT_SAAS_MODULE, 'assets/'));
+}
 
 hooks()->add_action('admin_init', 'kt_saas_module_init');
 hooks()->add_action('app_init', 'kt_saas_boot_runtime_hooks_early');
@@ -41,10 +47,90 @@ function kt_saas_module_init()
     kt_saas_register_menu_items();
     kt_saas_register_runtime_hooks();
     kt_saas_sync_email_template_states_once();
+    kt_saas_seed_dms_auth_email_templates_once();
     kt_saas_seed_phase3b_email_templates_once();
     kt_saas_seed_phase3c_email_templates_once();
     kt_saas_seed_billing_lifecycle_email_templates_once();
     kt_saas_seed_phase3d_email_templates_once();
+    kt_saas_cleanup_legacy_dms_plan_ownership_once();
+}
+
+function kt_saas_seed_dms_auth_email_templates_once()
+{
+    if (!function_exists('get_option') || !function_exists('update_option') || !function_exists('kt_saas_is_landlord_context') || !kt_saas_is_landlord_context()) {
+        return;
+    }
+
+    $flag = 'kt_saas_email_template_dms_auth_seed_v1';
+    if ((string) get_option($flag) === '1') {
+        return;
+    }
+
+    $CI = &get_instance();
+    if (!isset($CI->emails_model)) {
+        $CI->load->model('emails_model');
+    }
+
+    $definitions = kt_saas_dms_auth_email_template_definitions();
+    foreach ($definitions as $slug => $languages) {
+        foreach ($languages as $language => $template) {
+            $template = kt_saas_normalize_vietnamese_email_template($language, $template);
+            $existing = $CI->emails_model->get([
+                'slug' => $slug,
+                'language' => $language,
+            ], 'row_array');
+
+            $payload = [
+                'type' => (string) ($template['type'] ?? 'staff'),
+                'slug' => $slug,
+                'language' => $language,
+                'name' => (string) ($template['name'] ?? $slug),
+                'subject' => (string) ($template['subject'] ?? ''),
+                'message' => (string) ($template['message'] ?? ''),
+                'fromname' => (string) ($template['fromname'] ?? '{companyname} | CRM'),
+                'fromemail' => (string) ($template['fromemail'] ?? ''),
+                'plaintext' => (int) ($template['plaintext'] ?? 0),
+                'active' => (int) ($template['active'] ?? 1),
+                'order' => (int) ($template['order'] ?? 90),
+            ];
+
+            if ($existing) {
+                $CI->db->where('emailtemplateid', (int) $existing['emailtemplateid'])->update(db_prefix() . 'emailtemplates', $payload);
+            } else {
+                $CI->emails_model->add_template($payload);
+            }
+        }
+    }
+
+    update_option($flag, '1');
+}
+
+function kt_saas_dms_auth_email_template_definitions()
+{
+    return [
+        'dms-auth-link' => [
+            'english' => [
+                'type' => 'staff',
+                'name' => 'DMS Auth Link',
+                'subject' => '{subject}',
+                'message' => '<h2>{headline}</h2><p>{message}</p><p><a href="{action_url}" style="display:inline-block;padding:10px 16px;background:#0f5b9d;color:#ffffff;text-decoration:none;border-radius:4px;">{action_label}</a></p><p><strong>Login page:</strong> <a href="{login_url}">{login_url}</a></p><p><strong>Link expires in:</strong> {expires_in_minutes} minutes.</p><p>{email_signature}</p>',
+                'fromname' => '{companyname} | CRM',
+                'plaintext' => 0,
+                'active' => 1,
+                'order' => 90,
+            ],
+            'vietnamese' => [
+                'type' => 'staff',
+                'name' => 'Liên kết đăng nhập DMS',
+                'subject' => '{subject}',
+                'message' => '<h2>{headline}</h2><p>{message}</p><p><a href="{action_url}" style="display:inline-block;padding:10px 16px;background:#0f5b9d;color:#ffffff;text-decoration:none;border-radius:4px;">{action_label}</a></p><p><strong>Trang đăng nhập:</strong> <a href="{login_url}">{login_url}</a></p><p><strong>Liên kết hết hạn sau:</strong> {expires_in_minutes} phút.</p><p>{email_signature}</p>',
+                'fromname' => '{companyname} | CRM',
+                'plaintext' => 0,
+                'active' => 1,
+                'order' => 90,
+            ],
+        ],
+    ];
 }
 
 function kt_saas_boot_runtime_hooks_early()
@@ -139,6 +225,23 @@ function kt_saas_register_menu_items()
             return;
         }
 
+        if (is_admin()) {
+            $CI->app_menu->add_sidebar_menu_item('kt_saas_apps', [
+                'slug'     => 'kt_saas_apps',
+                'name'     => _l('kt_saas_apps'),
+                'icon'     => 'fa fa-th-large',
+                'collapse' => true,
+                'position' => 30,
+            ]);
+
+            $CI->app_menu->add_sidebar_children_item('kt_saas_apps', [
+                'slug'     => 'kt_saas_marketplace',
+                'name'     => _l('kt_saas_marketplace'),
+                'href'     => admin_url('kt_saas/tenant_marketplace'),
+                'position' => 1,
+            ]);
+        }
+
         $CI->app_menu->add_sidebar_menu_item('kt_saas_account', [
             'slug'     => 'kt_saas_account',
             'name'     => _l('kt_saas_my_account'),
@@ -197,7 +300,7 @@ function kt_saas_register_menu_items()
         ['slug' => 'kt_saas_invoices', 'name' => _l('kt_saas_invoices'), 'href' => admin_url('kt_saas/invoices'), 'cap' => 'kt_saas_manage_billing'],
         ['slug' => 'kt_saas_payments', 'name' => _l('kt_saas_payments'), 'href' => admin_url('kt_saas/payments'), 'cap' => 'kt_saas_manage_billing'],
         ['slug' => 'kt_saas_domains', 'name' => _l('kt_saas_domains'), 'href' => admin_url('kt_saas/domains'), 'cap' => 'kt_saas_manage_domains'],
-        ['slug' => 'kt_saas_modules', 'name' => _l('kt_saas_modules'), 'href' => admin_url('kt_saas/modules'), 'cap' => 'kt_saas_manage_modules'],
+        ['slug' => 'kt_saas_modules', 'name' => _l('kt_saas_marketplace_catalog'), 'href' => admin_url('kt_saas/modules'), 'cap' => 'kt_saas_manage_modules'],
         ['slug' => 'kt_saas_backups', 'name' => _l('kt_saas_backups'), 'href' => admin_url('kt_saas/backups'), 'cap' => 'kt_saas_manage_backups'],
         ['slug' => 'kt_saas_provision_jobs', 'name' => _l('kt_saas_provision_jobs'), 'href' => admin_url('kt_saas/provision_jobs'), 'cap' => 'kt_saas_run_provisioning'],
         ['slug' => 'kt_saas_activity_logs', 'name' => _l('kt_saas_activity_logs'), 'href' => admin_url('kt_saas/activity_logs'), 'cap' => 'kt_saas_view'],
@@ -324,6 +427,25 @@ function kt_saas_sync_email_template_states_once()
     }
 
     update_option($flag, '1');
+}
+
+function kt_saas_cleanup_legacy_dms_plan_ownership_once()
+{
+    if (!function_exists('get_option') || !function_exists('update_option') || !kt_saas_is_landlord_context()) {
+        return;
+    }
+
+    $flag = 'kt_saas_dms_plan_feature_cleanup_v1';
+    if ((string) get_option($flag) === '1') {
+        return;
+    }
+
+    $CI = &get_instance();
+    $CI->load->model(KT_SAAS_MODULE . '/Kt_saas_model');
+    $result = $CI->Kt_saas_model->cleanup_plan_dms_feature_ownership();
+    if (!empty($result['success'])) {
+        update_option($flag, '1');
+    }
 }
 
 function kt_saas_normalize_vietnamese_email_template($language, $template)

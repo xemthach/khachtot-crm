@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /clients
+Disallow: /api
+Disallow: /sso
+Disallow: /webhook
+Disallow: /cron
+Disallow: /uploads
+Sitemap: https://khachtot.com/sitemap.xml

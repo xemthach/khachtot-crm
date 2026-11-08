@@ -449,6 +449,11 @@ class Emails_model extends App_Model
             }
         }
 
+        $encodedRequest = json_encode($request, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($encodedRequest === false) {
+            return ['success' => false, 'message' => 'Unable to encode Brevo payload.'];
+        }
+
         $ch = curl_init('https://api.brevo.com/v3/smtp/email');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -457,7 +462,7 @@ class Emails_model extends App_Model
             'content-type: application/json',
             'api-key: ' . $apiKey,
         ]);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($request));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $encodedRequest);
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
         $response = curl_exec($ch);
         $error = curl_error($ch);

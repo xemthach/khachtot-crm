@@ -1,6 +1,6 @@
 <?php defined('BASEPATH') or exit('No direct script access allowed'); ?>
 <div id="header">
-    <button type="button"
+    <button type="button" aria-label="Ẩn hoặc hiện menu chính" title="Ẩn hoặc hiện menu chính"
         class="hide-menu tw-inline-flex tw-bg-transparent tw-border-0 tw-p-1 tw-mt-4 hover:tw-bg-neutral-600/10 tw-text-neutral-600 hover:tw-text-neutral-800 focus:tw-text-neutral-800 focus:tw-outline-none tw-rounded-md tw-mx-4 ltr:md:tw-ml-4 rtl:md:tw-mr-4 ltr:tw-float-left  rtl:tw-float-right">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="tw-h-4 tw-w-4 tw-text-current">
             <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -38,7 +38,7 @@
                         placeholder="<?= _l('top_search_placeholder'); ?>"
                         autocomplete="off">
                     <div id="top_search_button" class="tw-absolute rtl:tw-right-2 ltr:tw-left-2 tw-top-2.5">
-                        <button
+                        <button type="button" aria-label="Tìm kiếm" title="Tìm kiếm"
                             class="tw-outline-none tw-border-0 tw-p-2 tw-text-neutral-400 group-focus-within/top-search:tw-text-neutral-600 tw-bg-transparent">
                             <i class="fa fa-search"></i>
                         </button>
@@ -57,7 +57,8 @@
                     <li class="icon tw-relative ltr:tw-mr-1.5 rtl:tw-ml-1.5 -tw-mt-1"
                         title="<?= _l('quick_create'); ?>"
                         data-toggle="tooltip" data-placement="bottom">
-                        <a href="#" class="!tw-px-0 tw-group !tw-text-white" data-toggle="dropdown">
+                        <a href="#" class="!tw-px-0 tw-group !tw-text-white" data-toggle="dropdown"
+                            aria-label="<?= e(_l('quick_create')); ?>" title="<?= e(_l('quick_create')); ?>">
                             <span
                                 class="tw-rounded-full tw-bg-primary-600 tw-text-white tw-inline-flex tw-items-center tw-justify-center tw-h-7 tw-w-7 -tw-mt-1 group-hover:!tw-bg-primary-700">
                                 <i class="fa-regular fa-plus fa-lg"></i>
@@ -107,7 +108,7 @@
             </div>
 
             <div class="mobile-menu tw-shrink-0 ltr:tw-ml-4 rtl:tw-mr-4">
-                <button type="button"
+                <button type="button" aria-label="Mở menu trên thiết bị di động" title="Mở menu trên thiết bị di động"
                     class="navbar-toggle visible-md visible-sm visible-xs mobile-menu-toggle collapsed tw-ml-1.5 tw-text-neutral-600 hover:tw-text-neutral-800"
                     data-toggle="collapse" data-target="#mobile-collapse" aria-expanded="false">
                     <i class="fa fa-chevron-down fa-lg"></i>
@@ -121,6 +122,7 @@
                     </li>
                     <li class="header-timers ltr:tw-mr-1.5 rtl:tw-ml-1.5">
                         <a href="#" id="top-timers" class="dropdown-toggle top-timers tw-block tw-h-5 tw-w-5"
+                            aria-label="<?= e(_l('my_timesheets')); ?>" title="<?= e(_l('my_timesheets')); ?>"
                             data-toggle="dropdown">
                             <i
                                 class="fa-regular fa-clock fa-lg tw-text-neutral-500 group-hover:tw-text-neutral-800 tw-shrink-0<?= count($startedTimers) > 0 ? ' tw-animate-spin-slow' : ''; ?>"></i>
@@ -209,7 +211,8 @@
                 <li class="icon header-timers timer-button tw-relative ltr:tw-mr-1.5 rtl:tw-ml-1.5"
                     data-placement="bottom" data-toggle="tooltip"
                     data-title="<?= _l('my_timesheets'); ?>">
-                    <a href="#" id="top-timers" class="top-timers !tw-px-0 tw-group" data-toggle="dropdown">
+                    <a href="#" id="top-timers" class="top-timers !tw-px-0 tw-group" data-toggle="dropdown"
+                        aria-label="<?= e(_l('my_timesheets')); ?>" title="<?= e(_l('my_timesheets')); ?>">
                         <span class="tw-inline-flex tw-items-center tw-justify-center tw-h-8 tw-w-9 -tw-mt-1.5">
                             <i
                                 class="fa-regular fa-clock fa-lg tw-text-neutral-500 group-hover:tw-text-neutral-800 tw-shrink-0<?= count($startedTimers) > 0 ? ' tw-animate-spin-slow' : ''; ?>"></i>

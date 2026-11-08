@@ -129,7 +129,16 @@ if (!function_exists('kt_landing_fastwork_icon')) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?php echo html_escape($meta_title ?? $title ?? $brandName); ?></title>
     <meta name="description" content="<?php echo html_escape($meta_description ?? 'CRM và nền tảng vận hành doanh nghiệp dành cho SME.'); ?>">
+    <meta name="robots" content="index, follow, max-image-preview:large">
     <link rel="canonical" href="<?php echo html_escape($canonical_url ?? current_url()); ?>">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="vi_VN">
+    <meta property="og:title" content="<?php echo html_escape($meta_title ?? $title ?? $brandName); ?>">
+    <meta property="og:description" content="<?php echo html_escape($meta_description ?? 'CRM và nền tảng vận hành doanh nghiệp dành cho SME.'); ?>">
+    <meta property="og:url" content="<?php echo html_escape($canonical_url ?? current_url()); ?>">
+    <?php if (!empty($og_image)) { ?><meta property="og:image" content="<?php echo html_escape($og_image); ?>"><?php } ?>
+    <meta name="twitter:card" content="summary_large_image">
+    <script type="application/ld+json"><?php echo json_encode(['@context' => 'https://schema.org', '@type' => 'SoftwareApplication', 'name' => $brandName, 'applicationCategory' => 'BusinessApplication', 'operatingSystem' => 'Web', 'url' => $canonical_url ?? current_url(), 'description' => $meta_description ?? 'CRM và nền tảng vận hành doanh nghiệp dành cho SME.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?></script>
     <?php if ($faviconUrl !== '') { ?><link rel="icon" href="<?php echo html_escape($faviconUrl); ?>"><?php } ?>
     <link rel="stylesheet" href="<?php echo base_url('assets/plugins/bootstrap/css/bootstrap.min.css'); ?>">
     <link rel="stylesheet" href="<?php echo base_url('assets/css/kt_public_typography.css'); ?>">

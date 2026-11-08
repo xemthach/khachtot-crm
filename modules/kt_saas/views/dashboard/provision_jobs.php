@@ -22,10 +22,14 @@
                                         $tenantAdmin = is_array($jobResult) ? ($jobResult['tenant_admin'] ?? []) : [];
                                     ?>
                                     <?php if (in_array($job['status'], ['queued', 'failed'], true)) { ?>
-                                        <a href="<?php echo admin_url('kt_saas/run_provision_job/' . $job['id']); ?>" class="btn btn-success btn-sm"><?php echo _l('kt_saas_run_now'); ?></a>
+                                        <?php echo form_open(admin_url('kt_saas/run_provision_job/' . $job['id']), ['class' => 'tw-inline']); ?>
+                                        <button type="submit" class="btn btn-success btn-sm"><?php echo _l('kt_saas_run_now'); ?></button>
+                                        <?php echo form_close(); ?>
                                     <?php } ?>
                                     <?php if (in_array($job['status'], ['failed', 'done'], true)) { ?>
-                                        <a href="<?php echo admin_url('kt_saas/retry_provision_job/' . $job['id']); ?>" class="btn btn-default btn-sm"><?php echo _l('kt_saas_retry'); ?></a>
+                                        <?php echo form_open(admin_url('kt_saas/retry_provision_job/' . $job['id']), ['class' => 'tw-inline']); ?>
+                                        <button type="submit" class="btn btn-default btn-sm"><?php echo _l('kt_saas_retry'); ?></button>
+                                        <?php echo form_close(); ?>
                                     <?php } ?>
                                     <?php if (!empty($tenantAdmin['onboarding_link_generated'])) { ?>
                                         <span class="label label-info">Đã tạo link</span>

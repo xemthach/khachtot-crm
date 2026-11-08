@@ -152,54 +152,66 @@ function kt_inventory_invoice_deleted($id)
 function kt_inventory_sync_on_item_created($id)
 {
     $CI = &get_instance();
-    
-    // Check if the item already has an inventory master record
-    $exists = $CI->db->where('item_id', $id)->get(db_prefix() . 'kt_inventory_items')->row_array();
-    if ($exists) {
-        return;
-    }
 
-    $sku = 'ITEM-' . $id;
-    // Ensure SKU is unique
-    $count = 1;
-    while ($CI->db->where('sku', $sku)->count_all_results(db_prefix() . 'kt_inventory_items') > 0) {
-        $sku = 'ITEM-' . $id . '-' . $count;
-        $count++;
-    }
+    try {
+        if (!$CI->db->table_exists(db_prefix() . 'items')
+            || !$CI->db->table_exists(db_prefix() . 'kt_inventory_items')
+        ) {
+            log_message('error', 'KT Inventory item_created skipped: required tables are unavailable in the active database context. item_id=' . (int) $id);
+            return;
+        }
 
-    $CI->db->insert(db_prefix() . 'kt_inventory_items', [
-        'item_id'      => $id,
-        'sku'          => $sku,
-        'track_lot'    => 0,
-        'track_serial' => 0,
-        'min_stock'    => 0,
-        'max_stock'    => 0,
-        'is_active'    => 1,
-        'created_at'   => date('Y-m-d H:i:s'),
-        'updated_at'   => date('Y-m-d H:i:s'),
-    ]);
+        // Never create an inventory FK in a database that does not own the core item.
+        $coreItem = $CI->db
+            ->select('id, commodity_barcode, unit')
+            ->where('id', (int) $id)
+            ->get(db_prefix() . 'items')
+            ->row_array();
+        if (!$coreItem) {
+            log_message('error', 'KT Inventory item_created skipped: core item is absent from the active database context. item_id=' . (int) $id);
+            return;
+        }
 
-    $inventory_item_id = $CI->db->insert_id();
+        $exists = $CI->db->where('item_id', (int) $id)->get(db_prefix() . 'kt_inventory_items')->row_array();
+        if ($exists) {
+            return;
+        }
 
-    // Check if core item has barcode to sync
-    if (!class_exists('Invoice_items_model', false)) {
-        $CI->load->model('invoice_items_model');
-    }
-    $core_item = $CI->invoice_items_model->get($id);
-    if ($core_item && !empty($core_item->commodity_barcode)) {
-        $barcode = trim((string) $core_item->commodity_barcode);
-        if ($barcode !== '') {
+        $sku = 'ITEM-' . (int) $id;
+        $count = 1;
+        while ($CI->db->where('sku', $sku)->count_all_results(db_prefix() . 'kt_inventory_items') > 0) {
+            $sku = 'ITEM-' . (int) $id . '-' . $count;
+            $count++;
+        }
+
+        $CI->db->insert(db_prefix() . 'kt_inventory_items', [
+            'item_id'      => (int) $id,
+            'sku'          => $sku,
+            'track_lot'    => 0,
+            'track_serial' => 0,
+            'min_stock'    => 0,
+            'max_stock'    => 0,
+            'is_active'    => 1,
+            'created_at'   => date('Y-m-d H:i:s'),
+            'updated_at'   => date('Y-m-d H:i:s'),
+        ]);
+
+        $inventoryItemId = (int) $CI->db->insert_id();
+        $barcode = trim((string) ($coreItem['commodity_barcode'] ?? ''));
+        if ($inventoryItemId > 0 && $barcode !== '') {
             $CI->load->model(KT_INVENTORY_MODULE . '/kt_inventory_model');
             $CI->kt_inventory_model->add_item_barcode([
-                'inventory_item_id' => $inventory_item_id,
+                'inventory_item_id' => $inventoryItemId,
                 'barcode'           => $barcode,
                 'barcode_type'      => 'internal',
-                'unit_type'         => trim((string) ($core_item->unit ?? '')),
+                'unit_type'         => trim((string) ($coreItem['unit'] ?? '')),
                 'package_quantity'  => 1,
                 'is_primary'        => 1,
                 'source'            => 'manual',
                 'is_active'         => 1,
             ]);
         }
+    } catch (Throwable $e) {
+        log_message('error', 'KT Inventory item_created ignored after non-authoritative inventory failure: ' . $e->getMessage() . ' item_id=' . (int) $id);
     }
 }

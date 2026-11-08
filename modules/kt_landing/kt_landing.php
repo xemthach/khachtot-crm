@@ -92,7 +92,7 @@ function kt_landing_register_menu_items()
         ['slug' => 'kt_landing_content_hub', 'name' => 'Content Hub', 'href' => admin_url('kt_landing/blog'), 'cap' => 'kt_landing_blog'],
         ['slug' => 'kt_landing_media', 'name' => 'Media', 'href' => admin_url('kt_landing/media'), 'cap' => 'kt_landing_media'],
         ['slug' => 'kt_landing_pricing', 'name' => 'Pricing', 'href' => admin_url('kt_landing/pricing'), 'cap' => 'kt_landing_configure'],
-        ['slug' => 'kt_landing_marketplace', 'name' => 'Marketplace', 'href' => admin_url('kt_landing/addons'), 'cap' => 'kt_landing_configure'],
+        ['slug' => 'kt_landing_marketplace', 'name' => 'Landing Add-on Cards', 'href' => admin_url('kt_landing/addons'), 'cap' => 'kt_landing_configure'],
         ['slug' => 'kt_landing_seo', 'name' => 'SEO Center', 'href' => admin_url('kt_landing/seo'), 'cap' => 'kt_landing_configure'],
         ['slug' => 'kt_landing_conversion', 'name' => 'Leads', 'href' => admin_url('kt_landing/leads'), 'cap' => 'kt_landing_leads'],
         ['slug' => 'kt_landing_publish', 'name' => 'Publish Center', 'href' => admin_url('kt_landing/publish'), 'cap' => 'kt_landing_publish'],

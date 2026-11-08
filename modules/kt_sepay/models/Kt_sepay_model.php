@@ -90,6 +90,7 @@ class Kt_sepay_model extends App_Model
     {
         return in_array(trim((string) $contextType), [
             'kt_saas_subscription',
+            'kt_saas_dms_addon',
             'kt_matbao_invoice_order',
         ], true);
     }

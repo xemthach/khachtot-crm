@@ -1,0 +1,1 @@
+<?php defined('BASEPATH') or define('BASEPATH',__DIR__);$s=file_get_contents(dirname(__DIR__).'/models/Kt_integration_model.php');foreach(['get_dms_readiness_state','get_dms_sync_job_status_snapshot','get_dms_map_activity','get_dms_platform_config']as$n)if(strpos($s,$n)===false)throw new RuntimeException($n);echo"DmsOperationalAuditSmokeTest passed.\n";

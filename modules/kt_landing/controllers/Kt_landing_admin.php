@@ -371,10 +371,10 @@ class Kt_landing_admin extends AdminController
                 $this->Kt_landing_model->set_setting($key . '_description', (string) $this->input->post($key . '_description', false));
                 $this->Kt_landing_model->set_setting($key . '_cta', (string) $this->input->post($key . '_cta', false));
             }
-            set_alert('success', 'Saved add-ons');
+            set_alert('success', 'Saved landing add-on cards.');
             redirect(admin_url('kt_landing/addons'));
         }
-        $data['title'] = 'Add-ons';
+        $data['title'] = 'Landing Add-on Cards';
         $data['addons'] = [];
         foreach ($defaults as $addon) {
             $key = $addon['key'];

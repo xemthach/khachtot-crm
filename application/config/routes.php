@@ -84,6 +84,7 @@ $route['admin/kt_landing/preview/(:any)'] = 'kt_landing/kt_landing_admin/preview
  */
 $route['admin/access_denied'] = 'admin/misc/access_denied';
 $route['admin/not_found']     = 'admin/misc/not_found';
+$route['admin/qa-auth/redeem'] = 'admin/qa_auth/redeem';
 
 /**
  * Staff Routes
@@ -102,6 +103,19 @@ $route['admin/items/search'] = 'admin/invoice_items/search';
  */
 $route[''] = 'kt_landing/kt_landing_public/home';
 $route['pricing'] = 'kt_landing/kt_landing_public/pricing';
+$route['bang-gia'] = 'kt_landing/kt_landing_public/pricing';
+$route['crm'] = 'kt_landing/kt_landing_public/marketing/crm';
+$route['features'] = 'kt_landing/kt_landing_public/marketing/features';
+$route['dms'] = 'kt_landing/kt_landing_public/marketing/dms';
+$route['crm-ban-hang'] = 'kt_landing/kt_landing_public/marketing/crm-sales';
+$route['crm-cham-soc-khach-hang'] = 'kt_landing/kt_landing_public/marketing/customer-care';
+$route['dms-quan-ly-sales-thi-truong'] = 'kt_landing/kt_landing_public/marketing/field-sales';
+$route['quan-ly-don-hang-hoa-don-thanh-toan'] = 'kt_landing/kt_landing_public/marketing/commerce';
+$route['quan-ly-ton-kho-san-pham'] = 'kt_landing/kt_landing_public/marketing/inventory';
+$route['lien-he'] = 'kt_landing/kt_landing_public/marketing/contact';
+$route['dang-nhap'] = 'kt_landing/kt_landing_public/login_entry';
+$route['robots.txt'] = 'kt_landing/kt_landing_public/robots';
+$route['sitemap.xml'] = 'kt_landing/kt_landing_public/sitemap';
 $route['blog'] = 'kt_landing/kt_landing_public/blog';
 $route['signup'] = 'kt_landing/kt_landing_public/signup';
 $route['signup/status'] = 'kt_landing/kt_landing_public/signup_status';

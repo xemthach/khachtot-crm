@@ -24,6 +24,9 @@ $brandHighlightVariant = $brandHighlightVariants[random_int(0, count($brandHighl
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?php echo html_escape($title ?? ('Chào mừng đến với ' . $companyName)); ?></title>
+    <meta name="description" content="Cổng đăng nhập an toàn cho workspace CRM của doanh nghiệp.">
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <link rel="canonical" href="<?php echo html_escape(rtrim((string) APP_BASE_URL, '/') . '/crm'); ?>">
     <?php if ($faviconUrl !== '') { ?>
         <link rel="shortcut icon" href="<?php echo html_escape($faviconUrl); ?>">
     <?php } ?>

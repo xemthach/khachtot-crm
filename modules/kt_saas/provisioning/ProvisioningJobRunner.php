@@ -133,6 +133,24 @@ class ProvisioningJobRunner
         }
 
         $steps[] = $this->step('queue_ready', true, 'Tenant bootstrap artifacts are ready for runtime integration.');
+
+        if ((string) ($job['job_type'] ?? '') === 'install_salesflow_dms') {
+            $dmsResult = $this->provisionSalesflowDmsWorkspace($tenant, $job);
+            $steps[] = $this->step(
+                'salesflow_dms_workspace',
+                !empty($dmsResult['success']),
+                (string) ($dmsResult['message'] ?? 'Salesflow DMS workspace provisioning completed.')
+            );
+            if (empty($dmsResult['success'])) {
+                return [
+                    'success' => false,
+                    'message' => (string) ($dmsResult['message'] ?? 'Salesflow DMS workspace provisioning failed.'),
+                    'steps'   => $steps,
+                    'dms_workspace' => $dmsResult,
+                ];
+            }
+        }
+
         $emailGuard = $this->reserveEmailEventGuard('provisioning_completed', [
             'tenant_id' => (int) $tenant['id'],
             'resource_type' => 'tenant',
@@ -618,7 +636,10 @@ class ProvisioningJobRunner
             ]);
         }
 
-        $this->installTenantModuleSchemas($tenantDb, $moduleCodes);
+        $installResult = $this->installTenantModuleSchemas($tenantDb, $moduleCodes);
+        if (empty($installResult['success'])) {
+            return $installResult;
+        }
 
         return ['success' => true, 'message' => 'Tenant modules seeded from landlord registry and plan entitlements.'];
     }
@@ -634,19 +655,25 @@ class ProvisioningJobRunner
                 continue;
             }
 
-            $this->runTenantModuleInstaller($tenantDb, $moduleName);
+            $result = $this->runTenantModuleInstaller($tenantDb, $moduleName);
+            if (empty($result['success'])) {
+                return $result;
+            }
         }
+
+        return ['success' => true, 'message' => 'Tenant module schemas installed.'];
     }
 
     protected function runTenantModuleInstaller($tenantDb, $moduleName)
     {
         $installPath = module_dir_path($moduleName, 'install.php');
         if (!file_exists($installPath)) {
-            return;
+            return ['success' => true, 'message' => 'Module installer not present; skipped.'];
         }
 
         $originalDb = $this->CI->db;
         $this->CI->db = $tenantDb;
+        $CI = $this->CI;
 
         try {
             if ($moduleName === 'kt_sepay') {
@@ -659,9 +686,17 @@ class ProvisioningJobRunner
             }
         } catch (Throwable $e) {
             log_message('error', 'KT SaaS provisioning module install failed for [' . $moduleName . ']: ' . $e->getMessage());
+            $this->CI->db = $originalDb;
+
+            return [
+                'success' => false,
+                'message' => 'Module [' . $moduleName . '] installation failed: ' . $e->getMessage(),
+            ];
         }
 
         $this->CI->db = $originalDb;
+
+        return ['success' => true, 'message' => 'Module [' . $moduleName . '] installed.'];
     }
 
     protected function seedTenantAdmin($tenantDb, array $tenant, $temporaryPassword)
@@ -933,6 +968,86 @@ class ProvisioningJobRunner
         return function_exists('kt_saas_url_with_tenant_host')
             ? kt_saas_url_with_tenant_host($url, $tenant)
             : $url;
+    }
+
+    protected function provisionSalesflowDmsWorkspace(array $tenant, array $job): array
+    {
+        $tenantId = (int) ($tenant['id'] ?? 0);
+        $subdomain = strtolower(trim((string) ($tenant['subdomain'] ?? '')));
+        if ($tenantId <= 0 || $subdomain === '') {
+            return ['success' => false, 'message' => 'Tenant id and subdomain are required for DMS workspace provisioning.'];
+        }
+
+        if (!defined('KT_INTEGRATION_HUB_MODULE')) {
+            return ['success' => false, 'message' => 'KT Integration Hub module is not loaded.'];
+        }
+
+        $this->CI->load->model('kt_integration_hub/Kt_integration_model');
+        if (!function_exists('kt_integration_hub_crm_company_id')) {
+            $this->CI->load->helper('kt_integration_hub/kt_integration_hub');
+        }
+
+        $companyId = function_exists('kt_integration_hub_crm_company_id')
+            ? (int) (kt_integration_hub_crm_company_id($tenant) ?? 0)
+            : 0;
+        if ($companyId <= 0) {
+            return ['success' => false, 'message' => 'Canonical CRM company identity is required for DMS workspace provisioning.'];
+        }
+
+        $payload = json_decode((string) ($job['payload_json'] ?? ''), true);
+        $payload = is_array($payload) ? $payload : [];
+        $packageCode = strtolower(trim((string) ($payload['package_code'] ?? '')));
+        if ($packageCode === '' && method_exists($this->CI->Kt_saas_model, 'resolve_tenant_dms_addon_context')) {
+            $addon = (array) $this->CI->Kt_saas_model->resolve_tenant_dms_addon_context($tenantId);
+            $packageCode = strtolower(trim((string) ($addon['package_code'] ?? '')));
+        }
+        if ($packageCode === '') {
+            return ['success' => false, 'message' => 'DMS package code is required for workspace provisioning.'];
+        }
+
+        $baseUrl = 'https://' . $subdomain . '.salesrep.test';
+        $connectionResult = $this->CI->Kt_integration_model->provision_salesflow_connection($tenantId, $baseUrl);
+        if (empty($connectionResult['success'])) {
+            return ['success' => false, 'message' => (string) ($connectionResult['message'] ?? 'Unable to create Salesrep DMS connection.')];
+        }
+
+        $connection = $this->CI->Kt_integration_model->get_salesflow_connection_for_tenant($tenantId);
+        if (!$connection) {
+            return ['success' => false, 'message' => 'Salesrep DMS connection was not found after provisioning.'];
+        }
+
+        require_once module_dir_path(KT_INTEGRATION_HUB_MODULE, 'libraries/DmsWorkspaceMutationClient.php');
+        $correlationId = 'dms-install-' . (int) ($job['id'] ?? 0) . '-' . bin2hex(random_bytes(6));
+        $request = [
+            'correlation_id' => $correlationId,
+            'source_system' => 'crm',
+            'crm_tenant_id' => $tenantId,
+            'crm_company_id' => $companyId,
+            'canonical_crm_company_id' => $companyId,
+            'compatibility_crm_company_id' => $tenantId,
+            'identity_trust_level' => 'canonical',
+            'crm_order_id' => (string) ($payload['dms_order_id'] ?? ''),
+            'workspace_name' => trim((string) ($tenant['company_name'] ?? $subdomain)),
+            'workspace_slug' => $subdomain,
+            'workspace_host' => $subdomain . '.salesrep.test',
+            'package_code' => $packageCode,
+            'entitlement_snapshot_checksum' => null,
+            'requested_by' => 'provision_job:' . (int) ($job['id'] ?? 0),
+        ];
+
+        try {
+            $result = (new DmsWorkspaceMutationClient())->provision($tenant, (array) $connection, $request, 'workspace-' . $correlationId);
+            $this->CI->Kt_integration_model->save_dms_workspace_mutation_result($tenantId, $companyId, $result);
+            return [
+                'success' => !empty($result['success']),
+                'message' => !empty($result['success'])
+                    ? 'Salesflow DMS workspace provisioned and registry saved.'
+                    : (string) ($result['message'] ?? 'Salesflow DMS workspace provisioning failed.'),
+                'result' => $result,
+            ];
+        } catch (Throwable $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
     }
 
     protected function tenantSetPasswordUrl(array $tenant, $staffId, $newPassKey)

@@ -777,6 +777,9 @@ class TenantEntitlementService
         $uri = trim((string) $uri, '/');
 
         if (in_array($uri, [
+            'admin/kt_saas/marketplace',
+            'admin/kt_saas/tenant_marketplace',
+            'admin/kt_saas/tenant_install_salesflow_dms',
             'admin/kt_saas/tenant_subscription',
             'admin/kt_saas/tenant_billing',
             'admin/kt_saas/tenant_usage',
@@ -799,6 +802,18 @@ class TenantEntitlementService
             'admin/kt_saas/tenant_email_settings_reset',
             'admin/kt_saas/tenant_email_settings_test',
         ], true)) {
+            return true;
+        }
+
+        if (preg_match('#^admin/kt_saas/tenant_marketplace_(app|provisioning)/[a-z0-9-]+$#', $uri)) {
+            return true;
+        }
+
+        if (preg_match('#^admin/kt_saas/dms_order_(status|pay)(?:/\d+)?$#', $uri)) {
+            return true;
+        }
+
+        if (preg_match('#^admin/kt_saas/tenant_cancel_dms_order/\d+$#', $uri)) {
             return true;
         }
 

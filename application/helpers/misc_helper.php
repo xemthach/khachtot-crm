@@ -177,7 +177,7 @@ function close_setup_menu()
 function maybe_add_http($url)
 {
     if (!preg_match('~^(?:f|ht)tps?://~i', $url)) {
-        $url = 'http://' . $url;
+        $url = 'https://' . $url;
     }
 
     return $url;
